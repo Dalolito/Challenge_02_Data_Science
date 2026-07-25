@@ -1,13 +1,16 @@
-﻿dataset,columna,problema,magnitud,accion_sugerida,accion_final,justificacion
-inventario,Stock_Actual,Stock negativo (imposible),60,Revisar: NaN o corregir signo,,
-inventario,Stock_Actual,Nulos,100,Imputar (mediana) o marcar,,
-inventario,Costo_Unitario_USD,Costos atípicos,1,Winsorizar / revisar (IQR),,
-inventario,Lead_Time_Dias,Texto no numérico (ej '25-30 días'),887,Parsear a número (tomar promedio del rango),,
-transacciones,Cantidad_Vendida,Cantidad negativa,100,Revisar: devolución vs error,,
-transacciones,Tiempo_Entrega_Real,Outlier 999 días,50,Tratar como nulo/centinela,,
-transacciones,Costo_Envio,Nulos,834,Imputar (mediana por ciudad),,
-transacciones,SKU_ID,Venta fantasma (SKU sin inventario),1751,Decisión de negocio: etiquetar 'sin catálogo',,
-feedback,Rating_Producto,Rating fuera de escala [1-5],30,Tratar como nulo e imputar (moda),,
-feedback,Rating_Logistica,Rating fuera de escala [1-5],0,Tratar como nulo e imputar (moda),,
-feedback,Edad_Cliente,Edad imposible (>100),23,NaN e imputar (mediana),,
-feedback,Feedback_ID,Duplicados,500,Eliminar duplicados (keep first),,
+﻿dataset,columna,problema,magnitud,accion_final,justificacion
+inventario,Costo_Unitario_USD,Outliers extremos ($0.05-$850k),1 registro >=100k,Winsorizing IQR,No perder el resto del registro del SKU por un solo valor extremo
+inventario,Lead_Time_Dias,'Inmediato' + rangos de texto,433 + 454,"'Inmediato'->0, rango->promedio","'Inmediato' es dato real (0 días), no faltante"
+inventario,Stock_Actual,Negativos,60,NaN + mediana,Imposible físicamente; mediana robusta a dispersión entre categorías
+inventario,Categoria,8 valores para 5 categorías + '???',305 '???' + 3 variantes duplicadas,Normalización + moda por bodega,"'???' es nulo técnico disfrazado, no categoría"
+transacciones,Cantidad_Vendida,Negativos,100,Valor absoluto + flag,Sin columna de tipo de transacción para distinguir devolución de error
+transacciones,Costo_Envio,Nulos,834 (8.3%),Mediana por ciudad,El costo de envío varía fuertemente por zona/distancia
+transacciones,Tiempo_Entrega_Real,Centinela 999,50,NaN + mediana + IQR,"999 no es una entrega real, es un código de error"
+transacciones,Ciudad_Destino,Contaminación cruzada ('Ventas_Web'),"1,290 (12.9%)","NaN + flag Ciudad_Invalida, SIN imputar",No hay forma confiable de inferir la ciudad real
+transacciones,Estado_Envio,Nulos,"1,683 (16.8%)",Categoría explícita 'Desconocido',Imputar un estado falso distorsionaría el KPI de servicio
+transacciones,SKU_ID,Venta fantasma (sin inventario),"1,751 (17.5%)","Flag SKU_Fantasma, SIN eliminar","Decisión de negocio pendiente, no limpieza técnica"
+feedback,Feedback_ID,Colisión de ID (no duplicado real),969 filas,"ID único regenerado, se conserva la fila",Contenido distinto por fila; eliminar perdería feedback real
+feedback,Rating_Producto/Logistica,Código de error (99),30,NaN + mediana,99 no es un rating válido en escala 1-5
+feedback,Edad_Cliente,Edad imposible (>100),23,NaN + mediana,Imposible biológicamente
+feedback,Recomienda_Marca,Nulos + mayúsculas sin normalizar,"1,119 nulos (24.9%)",Normalización case-insensitive; nulos SIN imputar,Es opinión subjetiva; no se puede inventar
+feedback,Comentario_Texto,"Placeholders ('N/A', '---')",631,"NaN, sin imputar","Texto libre, no se puede rellenar contenido"
