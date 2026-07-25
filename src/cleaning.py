@@ -1,26 +1,8 @@
-"""
-cleaning.py
-------------
-Módulo de limpieza y preprocesamiento de los tres datasets del proyecto.
-Transforma los DataFrames crudos cargados por data_loader.py en datos
-listos para análisis, generando un reporte de trazabilidad con cada
-decisión aplicada.
-
-v2 — Corrige 4 bugs detectados al auditar la v1 contra los datos reales
-(ver docs/auditoria_cleaning_v1.md para el detalle de cada bug) y cubre
-2 casos que la v1 no trataba (SKU fantasma, Estado_Envio nulo).
-"""
+"""Limpieza y preprocesamiento de los 3 datasets."""
 
 import re
 import numpy as np
 import pandas as pd
-
-
-# ---------------------------------------------------------------------------
-# Diccionarios de normalización (todas las keys en minúscula: se compara
-# siempre con el valor ya pasado por .lower().strip(), así "SI", "Si" y
-# "si" matchean igual — este era el Bug #4 de la v1).
-# ---------------------------------------------------------------------------
 
 CIUDAD_MAP = {
     "med": "Medellín", "medellin": "Medellín", "medellín": "Medellín",
@@ -66,15 +48,10 @@ CATEGORIA_MAP = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Helpers de parseo / normalización por celda
-# ---------------------------------------------------------------------------
 
 def _parse_lead_time(val):
-    """
-    BUG FIX (v1 -> v2): la v1 no reconocía 'Inmediato' y lo dejaba como NaN,
-    borrando 433 registros válidos. 'Inmediato' significa 0 días de espera.
-    """
+    """Parsea Lead_Time: 'Inmediato'->0, rangos '25-30'->promedio."""
     if pd.isna(val):
         return np.nan
     if isinstance(val, (int, float)):
@@ -96,11 +73,7 @@ def _parse_lead_time(val):
 
 
 def _normalize_categoria(val):
-    """
-    BUG FIX (v1 -> v2): la v1 solo hacía .str.title(), que no fusiona
-    singular/plural ni guiones, y convertía '???' en string vacío que
-    isna() no detecta. v2 normaliza a 5 categorías reales y '???' -> NaN.
-    """
+    """Normaliza categorías; '???' -> NaN."""
     if pd.isna(val):
         return np.nan
     v = str(val).strip()
@@ -111,11 +84,7 @@ def _normalize_categoria(val):
 
 
 def _normalize_ciudad(val):
-    """
-    BUG FIX (v1 -> v2): la v1 no detectaba 'Ventas_Web' como valor inválido
-    (contaminación cruzada con Canal_Venta). v2 lo marca como NaN + flag.
-    Devuelve (valor_normalizado, es_invalido: bool)
-    """
+    """Normaliza ciudad; marca contaminación cruzada."""
     if pd.isna(val):
         return np.nan, False
     v = str(val).strip().lower()
@@ -125,7 +94,7 @@ def _normalize_ciudad(val):
 
 
 def _cap_iqr(series, factor=1.5):
-    """Winsorizing (capping) basado en rango intercuartílico. No elimina filas."""
+    """Winsorizing basado en IQR. No elimina filas."""
     q1 = series.quantile(0.25)
     q3 = series.quantile(0.75)
     iqr = q3 - q1
@@ -135,7 +104,7 @@ def _cap_iqr(series, factor=1.5):
 
 
 def _impute_median_by_group(series, group_series):
-    """Imputa nulos de `series` con la mediana por grupo definido en `group_series`."""
+    """Imputa nulos con mediana por grupo."""
     medians = series.groupby(group_series).median()
     result = series.fillna(series.map(medians))
     if result.isna().sum() > 0:
@@ -143,9 +112,7 @@ def _impute_median_by_group(series, group_series):
     return result
 
 
-# ---------------------------------------------------------------------------
-# Limpieza de Inventario
-# ---------------------------------------------------------------------------
+# Inventario
 
 def clean_inventario(df: pd.DataFrame):
     report = {"dataset": "inventario", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
@@ -229,14 +196,10 @@ def clean_inventario(df: pd.DataFrame):
     return df, report
 
 
-# ---------------------------------------------------------------------------
-# Limpieza de Transacciones
-# ---------------------------------------------------------------------------
+# Transacciones
 
 def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" = None):
-    """
-    inventario_df: DataFrame YA LIMPIO, opcional, para marcar ventas fantasma.
-    """
+    """inventario_df opcional para marcar ventas fantasma."""
     report = {"dataset": "transacciones", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
@@ -351,9 +314,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
     return df, report
 
 
-# ---------------------------------------------------------------------------
-# Limpieza de Feedback
-# ---------------------------------------------------------------------------
+# Feedback
 
 def clean_feedback(df: pd.DataFrame):
     report = {"dataset": "feedback", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
@@ -459,9 +420,7 @@ def clean_feedback(df: pd.DataFrame):
     return df, report
 
 
-# ---------------------------------------------------------------------------
 # Pipeline completo
-# ---------------------------------------------------------------------------
 
 def clean_all_datasets(datasets: dict):
     reportes = []

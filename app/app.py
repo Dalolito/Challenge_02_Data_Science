@@ -1,17 +1,5 @@
 """
-app.py
-------
-Punto de entrada de la aplicación Streamlit. Orquesta:
-- Carga de datos crudos (src/data_loader.py)
-- Limpieza (src/cleaning.py)
-- Integración + variables derivadas (src/feature_engineering.py)
-- Sidebar con filtros globales
-- Las 4 pestañas del dashboard (app/tabs/)
-
-No contiene lógica de limpieza ni cálculos de negocio: solo orquesta
-llamadas a src/ y renderiza las tabs.
-
-Ejecutar con: streamlit run app/app.py   (desde la raíz del repo)
+Entrada de la aplicacion Streamlit. Orquesta la carga, limpieza, integración y renderizado de tabs.
 """
 
 import os

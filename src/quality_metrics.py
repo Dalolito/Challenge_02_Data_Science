@@ -1,29 +1,10 @@
-"""
-quality_metrics.py
----------------------
-Calcula el Health Score y métricas de calidad de un dataset, ANTES y
-DESPUÉS de la limpieza. Es la única fuente de verdad para este cálculo —
-el notebook de exploración y app/tabs/tab_auditoria.py importan de aquí,
-en vez de recalcular el score cada uno por su lado (eso fue justo el
-problema que teníamos: el mismo número calculado en 2 sitios distintos).
-"""
+"""Health Score y métricas de calidad pre/post limpieza."""
 
 import pandas as pd
 
 
 def health_score(df: pd.DataFrame) -> float:
-    """
-    Health Score de un dataset, en escala 0-100.
-
-    Combina dos componentes con el mismo peso:
-    - Completitud: 1 - (% promedio de celdas nulas)
-    - Unicidad:    1 - (% de filas duplicadas)
-
-    Es una métrica simple y auditable a propósito: cualquiera en el equipo
-    puede recalcularla a mano con dos líneas de pandas. No pretende ser un
-    índice sofisticado, sino un número fácil de explicar en el informe de
-    hallazgos.
-    """
+    """Score 0-100 basado en completitud y unicidad."""
     if df is None or len(df) == 0:
         return 0.0
 
@@ -33,15 +14,12 @@ def health_score(df: pd.DataFrame) -> float:
 
 
 def nulidad_por_columna(df: pd.DataFrame) -> pd.Series:
-    """% de nulos por columna, ordenado de mayor a menor."""
+    """% nulos por columna, descendente."""
     return (df.isna().mean() * 100).round(2).sort_values(ascending=False)
 
 
 def resumen_calidad(df: pd.DataFrame, nombre: str) -> dict:
-    """
-    Resumen de una sola fila con las métricas clave de un dataset,
-    pensado para construir tablas comparativas (ej. antes vs después).
-    """
+    """Resumen de métricas clave de un dataset."""
     return {
         "dataset": nombre,
         "filas": len(df),
@@ -55,18 +33,7 @@ def resumen_calidad(df: pd.DataFrame, nombre: str) -> dict:
 def comparar_antes_despues(
     datasets_crudos: dict, datasets_limpios: dict
 ) -> pd.DataFrame:
-    """
-    Tabla comparativa de Health Score antes/después para varios datasets.
-
-    Parameters
-    ----------
-    datasets_crudos, datasets_limpios : dict[str, pd.DataFrame]
-        Mismas claves en ambos diccionarios (ej. 'inventario', 'transacciones', 'feedback').
-
-    Returns
-    -------
-    DataFrame con columnas: dataset, health_score_antes, health_score_despues, mejora_pts
-    """
+    """Tabla comparativa Health Score antes/después."""
     filas = []
     for nombre in datasets_crudos:
         antes = health_score(datasets_crudos[nombre])

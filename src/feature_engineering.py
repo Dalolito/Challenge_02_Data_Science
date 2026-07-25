@@ -1,57 +1,13 @@
-"""
-feature_engineering.py
-------------------------
-Integración (merge) de los 3 datasets limpios y creación de variables
-derivadas (Fase 2 del challenge).
-
-Supuestos de negocio documentados explícitamente:
-
-1. SLA_DIAS_PROMETIDO = 15
-   No existe una columna de "fecha prometida de entrega". Se usa como
-   referencia la mediana real de Tiempo_Entrega_Real observada en los
-   datos limpios (~15 días) como proxy del SLA esperado. Es un parámetro
-   configurable.
-
-2. Margen_Utilidad = NaN para ventas con SKU_Fantasma=True (no hay
-   Costo_Unitario_USD porque el producto no existe en inventario). No se
-   imputa ni se excluye la fila — es información en sí misma para la
-   Pregunta 3 del reto (impacto financiero de la venta invisible).
-
-3. Feedback se AGREGA a nivel de Transaccion_ID antes del merge.
-   877 transacciones tienen entre 2 y 4 registros de feedback distintos
-   asociados (no son duplicados, son opiniones distintas de clientes).
-   Si se hiciera un merge directo 1-a-muchos, esas ventas se contarían
-   2, 3 o 4 veces en cualquier suma de ingresos/margen — corrompiendo
-   la Pregunta 1 (fuga de capital). Por eso el dataset maestro queda a
-   nivel de TRANSACCIÓN (una fila = una venta, 10,000 filas), y el
-   feedback múltiple se resume con la columna 'Feedback_Multiple_Count'
-   para no perder la señal de que hubo más de una opinión.
-"""
+"""Merge + variables derivadas (Fase 2)."""
 
 import numpy as np
 import pandas as pd
 
-SLA_DIAS_PROMETIDO = 15  # ver supuesto #1 arriba
+SLA_DIAS_PROMETIDO = 15
 
-
-# ---------------------------------------------------------------------------
-# Agregación de feedback (evita fan-out en el merge — ver supuesto #3)
-# ---------------------------------------------------------------------------
 
 def _aggregate_feedback_por_transaccion(df_feedback: pd.DataFrame) -> pd.DataFrame:
-    """
-    Colapsa el feedback a UNA fila por Transaccion_ID.
-
-    Reglas de agregación:
-    - Rating_Producto, Rating_Logistica, Satisfaccion_NPS, Edad_Cliente: promedio.
-    - Ticket_Soporte_Abierto: máximo (si CUALQUIER feedback de esa transacción
-      abrió un ticket, se marca 1 — es peor caso, más conservador para el
-      negocio que promediar).
-    - Recomienda_Marca: la moda (valor más frecuente); si hay empate, el primero.
-    - Comentario_Texto: se concatenan los comentarios no nulos con ' | '.
-    - Feedback_Multiple_Count: cuántos registros de feedback se agregaron
-      (1 = caso normal, >1 = flag de transparencia).
-    """
+    """Colapsa feedback a 1 fila por Transaccion_ID."""
     if df_feedback is None or len(df_feedback) == 0:
         return df_feedback
 
@@ -80,32 +36,12 @@ def _aggregate_feedback_por_transaccion(df_feedback: pd.DataFrame) -> pd.DataFra
     return agg
 
 
-# ---------------------------------------------------------------------------
-# Merge
-# ---------------------------------------------------------------------------
-
 def merge_datasets(
     df_inventario: pd.DataFrame,
     df_transacciones: pd.DataFrame,
     df_feedback: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Une los 3 datasets limpios en una sola tabla maestra A NIVEL DE TRANSACCIÓN
-    (una fila = una venta, sin duplicar filas por múltiples feedback).
-
-    - transacciones <- inventario           por SKU_ID (left join: se
-      conservan TODAS las ventas, incluidas las de SKU fantasma).
-    - resultado      <- feedback agregado    por Transaccion_ID (left join).
-
-    Parameters
-    ----------
-    df_inventario, df_transacciones, df_feedback : DataFrames YA LIMPIOS
-        (salida de cleaning.clean_all_datasets()).
-
-    Returns
-    -------
-    pd.DataFrame con exactamente len(df_transacciones) filas.
-    """
+    """Left join: transacciones -> inventario -> feedback."""
     n_transacciones_esperadas = len(df_transacciones)
 
     df = df_transacciones.merge(
@@ -126,16 +62,10 @@ def merge_datasets(
     return df
 
 
-# ---------------------------------------------------------------------------
 # Variables derivadas
-# ---------------------------------------------------------------------------
 
 def _add_margen_utilidad(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Margen_Utilidad = Precio_Venta_Final - Costo_Unitario_USD - Costo_Envio
-    Margen_Utilidad_Pct = Margen_Utilidad / Precio_Venta_Final * 100
-    NaN para ventas con SKU_Fantasma=True (no hay costo de referencia).
-    """
+    """Margen = Precio - Costo - Envío. NaN para SKU fantasma."""
     tiene_costo = df["Costo_Unitario_USD"].notna()
 
     df["Margen_Utilidad"] = np.where(
@@ -152,22 +82,14 @@ def _add_margen_utilidad(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _add_brecha_entrega(df: pd.DataFrame, sla_dias: int = SLA_DIAS_PROMETIDO) -> pd.DataFrame:
-    """
-    Brecha_Entrega = Tiempo_Entrega_Real - SLA_dias_prometido.
-    Positivo = entrega tardía respecto al SLA. Negativo = entrega adelantada.
-    """
+    """Brecha = real - SLA; positivo = tarde."""
     df["Brecha_Entrega"] = df["Tiempo_Entrega_Real"] - sla_dias
     df["Entrega_Fuera_SLA"] = df["Brecha_Entrega"] > 0
     return df
 
 
 def _add_ratio_soporte_categoria(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ratio_Soporte_Categoria = % de tickets de soporte abiertos dentro de la
-    misma Categoria de producto (tasa agregada por categoría, no por fila
-    individual — sirve para comparar categorías entre sí).
-    Filas sin Categoria (SKU fantasma) quedan con NaN.
-    """
+    """% tickets soporte por categoría."""
     if "Ticket_Soporte_Abierto" not in df.columns or "Categoria" not in df.columns:
         return df
     ratio_por_categoria = df.groupby("Categoria")["Ticket_Soporte_Abierto"].mean() * 100
@@ -176,7 +98,7 @@ def _add_ratio_soporte_categoria(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_derived_features(df: pd.DataFrame, sla_dias: int = SLA_DIAS_PROMETIDO) -> pd.DataFrame:
-    """Aplica las 3 variables derivadas requeridas por el reto."""
+    """Aplica las 3 variables derivadas del reto."""
     df = df.copy()
     df = _add_margen_utilidad(df)
     df = _add_brecha_entrega(df, sla_dias=sla_dias)
@@ -184,17 +106,13 @@ def add_derived_features(df: pd.DataFrame, sla_dias: int = SLA_DIAS_PROMETIDO) -
     return df
 
 
-# ---------------------------------------------------------------------------
-# Pipeline completo
-# ---------------------------------------------------------------------------
-
 def build_master_dataset(
     df_inventario: pd.DataFrame,
     df_transacciones: pd.DataFrame,
     df_feedback: pd.DataFrame,
     sla_dias: int = SLA_DIAS_PROMETIDO,
 ) -> pd.DataFrame:
-    """Punto de entrada único: merge (sin fan-out) + variables derivadas."""
+    """Punto de entrada único: merge + variables derivadas."""
     df_master = merge_datasets(df_inventario, df_transacciones, df_feedback)
     df_master = add_derived_features(df_master, sla_dias=sla_dias)
     return df_master
