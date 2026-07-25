@@ -1,0 +1,13 @@
+﻿dataset,columna,problema,magnitud,accion_sugerida,accion_final,justificacion
+inventario,Stock_Actual,Stock negativo (imposible),60,Revisar: NaN o corregir signo,,
+inventario,Stock_Actual,Nulos,100,Imputar (mediana) o marcar,,
+inventario,Costo_Unitario_USD,Costos atípicos,1,Winsorizar / revisar (IQR),,
+inventario,Lead_Time_Dias,Texto no numérico (ej '25-30 días'),887,Parsear a número (tomar promedio del rango),,
+transacciones,Cantidad_Vendida,Cantidad negativa,100,Revisar: devolución vs error,,
+transacciones,Tiempo_Entrega_Real,Outlier 999 días,50,Tratar como nulo/centinela,,
+transacciones,Costo_Envio,Nulos,834,Imputar (mediana por ciudad),,
+transacciones,SKU_ID,Venta fantasma (SKU sin inventario),1751,Decisión de negocio: etiquetar 'sin catálogo',,
+feedback,Rating_Producto,Rating fuera de escala [1-5],30,Tratar como nulo e imputar (moda),,
+feedback,Rating_Logistica,Rating fuera de escala [1-5],0,Tratar como nulo e imputar (moda),,
+feedback,Edad_Cliente,Edad imposible (>100),23,NaN e imputar (mediana),,
+feedback,Feedback_ID,Duplicados,500,Eliminar duplicados (keep first),,
