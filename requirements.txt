@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+openpyxl
+matplotlib
+seaborn
+plotly
+groq
+jupyter
+ipykernel
