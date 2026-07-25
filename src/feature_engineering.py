@@ -4,8 +4,7 @@ feature_engineering.py
 Integración (merge) de los 3 datasets limpios y creación de variables
 derivadas (Fase 2 del challenge).
 
-Supuestos de negocio documentados explícitamente (no vienen dados en el
-diccionario de datos, así que quedan aquí trazados):
+Supuestos de negocio documentados explícitamente:
 
 1. SLA_DIAS_PROMETIDO = 15
    No existe una columna de "fecha prometida de entrega". Se usa como
