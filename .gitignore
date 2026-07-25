@@ -1,0 +1,24 @@
+# --- Secretos y credenciales ---
+.streamlit/secrets.toml
+.env
+
+# --- Datos crudos (no versionar, pesan y pueden ser sensibles) ---
+data/raw/*.csv
+data/processed/*.csv
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# --- Entornos virtuales ---
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Sistema operativo / IDE ---
+.DS_Store
+.vscode/
+.idea/
