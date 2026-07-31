@@ -123,7 +123,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 with tab1:
-    tab_auditoria.render(datasets_crudos, datasets_limpios, reportes_limpieza)
+    tab_auditoria.render(datasets_crudos, datasets_limpios, reportes_limpieza, df_maestro)
 
 with tab2:
     tab_operaciones.render(df_filtrado)
