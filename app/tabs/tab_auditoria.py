@@ -17,34 +17,48 @@ Se llama desde app.py así:
 """
 
 import io
+import os
+import sys
+
 import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+from quality_metrics import resumen_calidad_completo
 
 
 # ---------------------------------------------------------------------------
 # Utilidades internas
 # ---------------------------------------------------------------------------
 
-def _health_score(df: pd.DataFrame) -> float:
-    """Mismo cálculo usado en el notebook de exploración: completitud + unicidad."""
-    if df is None or len(df) == 0:
-        return 0.0
-    completitud = 1 - df.isna().mean().mean()
-    unicidad = 1 - (df.duplicated().sum() / len(df))
-    return round(100 * (completitud + unicidad) / 2, 1)
-
-
-def _resumen_health_scores(datasets_crudos: dict, datasets_limpios: dict) -> pd.DataFrame:
+def _tabla_4_dimensiones(datasets_crudos: dict, datasets_limpios: dict) -> pd.DataFrame:
+    """
+    Arma la tabla comparativa antes/después para las 4 dimensiones de
+    calidad. Consistencia no aplica al dataset crudo (las columnas flag
+    solo existen tras limpiar), así que queda vacía ahí — no se inventa
+    un número.
+    """
     filas = []
     for nombre in datasets_crudos:
+        antes = resumen_calidad_completo(datasets_crudos[nombre], nombre)
+        despues = resumen_calidad_completo(datasets_limpios.get(nombre), nombre)
         filas.append({
             "Dataset": nombre.capitalize(),
-            "Health Score (antes)": _health_score(datasets_crudos[nombre]),
-            "Health Score (después)": _health_score(datasets_limpios[nombre]),
+            "Momento": "Antes",
+            "Completitud": antes["completitud"],
+            "Unicidad": antes["unicidad"],
+            "Validez": antes["validez"],
+            "Consistencia": None,
         })
-    df = pd.DataFrame(filas)
-    df["Mejora (pts)"] = (df["Health Score (después)"] - df["Health Score (antes)"]).round(1)
-    return df
+        filas.append({
+            "Dataset": nombre.capitalize(),
+            "Momento": "Después",
+            "Completitud": despues["completitud"],
+            "Unicidad": despues["unicidad"],
+            "Validez": despues["validez"],
+            "Consistencia": despues["consistencia"],
+        })
+    return pd.DataFrame(filas)
 
 
 def _descargar_reporte_csv(reportes: list) -> bytes:
@@ -78,21 +92,59 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     )
 
     # -----------------------------------------------------------------
-    # 1. Health Score antes/después
+    # 1. Calidad en 4 dimensiones (no solo nulos)
     # -----------------------------------------------------------------
-    st.subheader("1. Health Score por dataset")
-    resumen = _resumen_health_scores(datasets_crudos, datasets_limpios)
+    st.subheader("1. Calidad de datos — 4 dimensiones")
+    st.caption(
+        "Medir solo '% de nulos' esconde problemas: un Rating_Producto=99 o una "
+        "Ciudad_Destino='Ventas_Web' no son nulos, son datos presentes pero inválidos "
+        "o inconsistentes. Por eso se miden 4 dimensiones por separado."
+    )
 
-    col_tabla, col_grafico = st.columns([1, 1.4])
-    with col_tabla:
-        st.dataframe(resumen, hide_index=True, width='stretch')
-    with col_grafico:
-        chart_df = resumen.melt(
-            id_vars="Dataset",
-            value_vars=["Health Score (antes)", "Health Score (después)"],
-            var_name="Momento", value_name="Score",
-        )
-        st.bar_chart(chart_df, x="Dataset", y="Score", color="Momento", stack=False)
+    with st.expander("¿Qué mide cada dimensión?"):
+        st.markdown("""
+- **Completitud**: % de celdas que SÍ tienen un valor (lo contrario de nulos).
+- **Unicidad**: % de filas que NO son un duplicado exacto de otra.
+- **Validez**: % de valores que caen dentro del rango de negocio esperado
+  (ej. un Rating entre 1 y 5, una Edad entre 0 y 100). Un dato puede estar
+  presente y aun así ser inválido — eso NO lo detecta la completitud.
+- **Consistencia**: % de filas sin problemas de integridad referencial ni
+  contaminación cruzada entre columnas (SKU sin inventario asociado, ciudad
+  contaminada con datos de otra columna). Solo se puede calcular sobre el
+  dataset ya limpio, porque ahí es donde existen las columnas de flag.
+        """)
+
+    tabla_dimensiones = _tabla_4_dimensiones(datasets_crudos, datasets_limpios)
+
+    nombres_bonitos = {"inventario": "📦 Inventario", "transacciones": "🚚 Transacciones", "feedback": "😊 Feedback"}
+
+    tabs_dimensiones = st.tabs([nombres_bonitos.get(k, k) for k in datasets_crudos.keys()])
+    for tab, nombre_ds in zip(tabs_dimensiones, datasets_crudos.keys()):
+        with tab:
+            sub = tabla_dimensiones[tabla_dimensiones["Dataset"] == nombre_ds.capitalize()]
+
+            col_tabla, col_grafico = st.columns([1, 1.3])
+            with col_tabla:
+                st.dataframe(
+                    sub.drop(columns="Dataset").set_index("Momento"),
+                    width="stretch",
+                )
+            with col_grafico:
+                chart_df = sub.melt(
+                    id_vars="Momento",
+                    value_vars=["Completitud", "Unicidad", "Validez", "Consistencia"],
+                    var_name="Dimensión", value_name="Score",
+                ).dropna(subset=["Score"])
+                if not chart_df.empty:
+                    st.bar_chart(chart_df, x="Dimensión", y="Score", color="Momento", stack=False)
+
+            # Detalle de validez por columna, si aplica
+            despues = resumen_calidad_completo(datasets_limpios.get(nombre_ds), nombre_ds)
+            if despues["consistencia_detalle"]:
+                st.markdown("**Detalle de consistencia (dataset limpio):**")
+                for col_flag, info in despues["consistencia_detalle"].items():
+                    st.write(f"- `{col_flag}`: {info['n_marcados']:,} registros marcados "
+                             f"({info['pct_marcados']}%)")
 
     st.divider()
 
@@ -100,8 +152,6 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     # 2. Qué se encontró y cómo se corrigió, por dataset
     # -----------------------------------------------------------------
     st.subheader("2. Errores detectados y corrección aplicada")
-
-    nombres_bonitos = {"inventario": "📦 Inventario", "transacciones": "🚚 Transacciones", "feedback": "😊 Feedback"}
 
     tabs_dataset = st.tabs([nombres_bonitos.get(r["dataset"], r["dataset"]) for r in reportes])
 
