@@ -1,17 +1,8 @@
-"""
-data_loader.py
-----------------
-Responsable ÚNICAMENTE de leer los CSV crudos desde data/raw/ y devolver
-DataFrames de pandas SIN transformarlos. Ninguna limpieza va aquí — eso
-vive en cleaning.py.
-
-"""
+"""Carga CSVs crudos desde data/raw/."""
 
 import os
 import pandas as pd
 
-# Ruta a data/raw/ relativa a este archivo (src/), para que funcione sin
-# importar desde dónde se ejecute streamlit o el notebook.
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RAW_DIR = os.path.join(_BASE_DIR, "..", "data", "raw")
 
@@ -21,7 +12,7 @@ FEEDBACK_FILE = "feedback_clientes_v2.csv"
 
 
 def _read_csv_con_encoding(path: str, nombre: str) -> pd.DataFrame:
-    """Intenta leer un CSV probando varios encodings, sin transformar el contenido."""
+    """Prueba varios encodings al leer CSV."""
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"No se encontró '{nombre}' en {path}. "
@@ -61,13 +52,7 @@ def load_feedback() -> pd.DataFrame:
 
 
 def load_all_datasets() -> dict:
-    """
-    Carga los 3 datasets crudos.
-
-    Returns
-    -------
-    dict con claves 'inventario', 'transacciones', 'feedback'.
-    """
+    """Carga los 3 datasets crudos."""
     return {
         "inventario": load_inventario(),
         "transacciones": load_transacciones(),
