@@ -17,10 +17,11 @@ abajo) — esa verificación fue nuestra, no algo que la IA hiciera de forma aut
 
 ## Contexto que se le dio a la IA
 
-Se compartieron los 3 archivos CSV reales del proyecto (`inventario_central_v2.csv`,
-`transacciones_logistica_v2.csv`, `feedback_clientes_v2.csv`), el diccionario de datos, la guía
-de validación y el enunciado del Challenge 02, para que el código y las decisiones de limpieza
-se ajustaran a los problemas reales de nuestros datos y no a suposiciones genéricas.
+Se compartieron las columnas y una muestra de cada uno de los 3 CSV reales del proyecto
+(`inventario_central_v2.csv`, `transacciones_logistica_v2.csv`, `feedback_clientes_v2.csv`),
+junto con el diccionario de datos, la guía de validación y el enunciado del Challenge 02, para
+que el código y las decisiones de limpieza se ajustaran a los problemas reales de nuestros datos
+y no a suposiciones genéricas.
 
 ## Fase 1 — Carga y limpieza de datos (`src/data_loader.py`, `src/cleaning.py`)
 
