@@ -1,25 +1,15 @@
 """
-tab_operaciones.py
---------------------
-Pestaña "Operaciones": responde las Preguntas 1, 2 y 3 del reto.
-
-1. Fuga de Capital y Rentabilidad — SKUs con margen negativo.
-2. Crisis Logística — correlación Tiempo de Entrega vs NPS por ciudad/bodega.
-3. Venta Invisible — impacto financiero de las ventas con SKU fantasma.
-
-Recibe el DataFrame maestro YA FILTRADO por los controles del sidebar
-(app.py se lo pasa). No vuelve a limpiar ni a integrar nada — todas las
-columnas que usa (Margen_Utilidad, SKU_Fantasma, Brecha_Entrega, etc.)
-ya vienen calculadas por src/feature_engineering.py.
+Pestaña "Operaciones": responde las Preguntas 1, 2 y 3 del reto
+(margen negativo, correlación tiempo de entrega vs NPS, venta invisible).
+Recibe el DataFrame maestro ya filtrado; las columnas vienen calculadas
+por src/feature_engineering.py.
 """
 
 import pandas as pd
 import streamlit as st
 
 
-# ---------------------------------------------------------------------------
 # Pregunta 1 — Fuga de capital y rentabilidad
-# ---------------------------------------------------------------------------
 
 def _seccion_margenes(df: pd.DataFrame):
     st.subheader("1. Fuga de Capital y Rentabilidad")
@@ -48,7 +38,7 @@ def _seccion_margenes(df: pd.DataFrame):
         st.success("No se encontraron ventas con margen negativo en el filtro actual.")
         return
 
-    # --- Gráfico: top 15 SKU con peor margen acumulado ---
+    # Top 15 SKU con peor margen acumulado
     top_sku_negativo = (
         df_negativo.groupby("SKU_ID")["Margen_Utilidad"]
         .agg(Perdida_Total="sum", N_Ventas="count")
@@ -68,7 +58,7 @@ def _seccion_margenes(df: pd.DataFrame):
         "revisar de precio o descatalogar."
     )
 
-    # --- Desglose por canal: ¿es un problema puntual o generalizado? ---
+    # Desglose por canal
     if "Canal_Venta" in df_negativo.columns:
         st.markdown("**¿Se concentra en algún canal de venta?**")
         por_canal = (
@@ -109,9 +99,7 @@ def _seccion_margenes(df: pd.DataFrame):
         )
 
 
-# ---------------------------------------------------------------------------
 # Pregunta 2 — Crisis logística y cuellos de botella
-# ---------------------------------------------------------------------------
 
 def _seccion_logistica(df: pd.DataFrame):
     st.subheader("2. Crisis Logística y Cuellos de Botella")
@@ -158,7 +146,7 @@ def _seccion_logistica(df: pd.DataFrame):
             "sacar una conclusión."
         )
 
-    # --- Correlación Tiempo_Entrega vs NPS, calculada POR ciudad ---
+    # Correlación Tiempo_Entrega vs NPS, por ciudad
     st.markdown("**Correlación Tiempo de Entrega ↔ NPS, por ciudad**")
     st.caption(
         "Un valor negativo fuerte significa: a mayor tiempo de entrega, peor NPS. "
@@ -196,16 +184,14 @@ def _seccion_logistica(df: pd.DataFrame):
                 "pena buscar la causa en otro factor, como la calidad del producto."
             )
 
-    # --- Lo mismo pero por bodega, si está disponible ---
+    # Mismo análisis por bodega (si está disponible)
     if "Bodega_Origen" in df_validos.columns:
         with st.expander("Ver el mismo análisis por Bodega_Origen"):
             te_bodega = df_validos.groupby("Bodega_Origen")["Tiempo_Entrega_Real"].mean().sort_values(ascending=False)
             st.bar_chart(te_bodega)
 
 
-# ---------------------------------------------------------------------------
 # Pregunta 3 — Venta invisible (SKU fantasma)
-# ---------------------------------------------------------------------------
 
 def _seccion_sku_fantasma(df: pd.DataFrame):
     st.subheader("3. Análisis de la Venta Invisible")
@@ -237,7 +223,7 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
         st.success("No hay ventas fantasma en el filtro actual.")
         return
 
-    # --- ¿Se concentra en ciudades, canales o fechas específicas? ---
+    # ¿Se concentra en ciudades o canales específicos?
     c1, c2 = st.columns(2)
     canal_top = None
     ciudad_top = None
@@ -281,9 +267,7 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
         )
 
 
-# ---------------------------------------------------------------------------
 # Render principal
-# ---------------------------------------------------------------------------
 
 def render(df_filtrado: pd.DataFrame):
     st.header("📦 Operaciones")

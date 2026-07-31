@@ -1,24 +1,14 @@
 """
-tab_cliente.py
-----------------
-Pestaña "Cliente": responde las Preguntas 4 y 5 del reto.
-
-4. Diagnóstico de Fidelidad — categorías con alta disponibilidad (stock alto)
-   pero sentimiento de cliente negativo (¿mala calidad o sobrecosto?).
-5. Storytelling de Riesgo Operativo — relación entre antigüedad de la última
-   revisión de stock y la tasa de tickets de soporte, por bodega.
-
-Recibe el DataFrame maestro YA FILTRADO por el sidebar. Solo lee columnas
-que ya vienen calculadas por feature_engineering.py / cleaning.py.
+Pestaña "Cliente": responde las Preguntas 4 y 5 del reto (paradoja
+stock alto/sentimiento negativo y riesgo operativo por bodega).
+Recibe el DataFrame maestro ya filtrado por el sidebar.
 """
 
 import pandas as pd
 import streamlit as st
 
 
-# ---------------------------------------------------------------------------
 # Pregunta 4 — Paradoja stock alto / sentimiento negativo
-# ---------------------------------------------------------------------------
 
 def _seccion_paradoja_stock(df: pd.DataFrame):
     st.subheader("4. Diagnóstico de Fidelidad — Paradoja Stock Alto / Sentimiento Negativo")
@@ -49,7 +39,7 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
         .reset_index()
     )
 
-    # Umbral: por encima de la mediana de stock y por debajo de la mediana de NPS
+    # Umbral: stock sobre la mediana y NPS bajo la mediana
     stock_mediana = resumen["Stock_Promedio"].median()
     nps_mediana = resumen["NPS_Promedio"].median()
     resumen["Paradoja"] = (
@@ -104,9 +94,7 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
         )
 
 
-# ---------------------------------------------------------------------------
 # Pregunta 5 — Antigüedad de revisión de stock vs tickets de soporte
-# ---------------------------------------------------------------------------
 
 def _seccion_riesgo_operativo(df: pd.DataFrame):
     st.subheader("5. Storytelling de Riesgo Operativo")
@@ -184,9 +172,7 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
         )
 
 
-# ---------------------------------------------------------------------------
 # Render principal
-# ---------------------------------------------------------------------------
 
 def render(df_filtrado: pd.DataFrame):
     st.header("😊 Cliente")

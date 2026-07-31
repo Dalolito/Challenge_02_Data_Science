@@ -1,17 +1,8 @@
 """
-app.py
-------
-Punto de entrada de la aplicación Streamlit. Orquesta:
-- Carga de datos crudos (src/data_loader.py)
-- Limpieza (src/cleaning.py)
-- Integración + variables derivadas (src/feature_engineering.py)
-- Sidebar con filtros globales
-- Las 4 pestañas del dashboard (app/tabs/)
+Punto de entrada de la app Streamlit: orquesta la carga/limpieza (src/),
+los filtros globales del sidebar y las 4 pestañas. Sin lógica de negocio.
 
-No contiene lógica de limpieza ni cálculos de negocio: solo orquesta
-llamadas a src/ y renderiza las tabs.
-
-Ejecutar con: streamlit run app/app.py   (desde la raíz del repo)
+Ejecutar con: streamlit run app/app.py (desde la raíz del repo)
 """
 
 import os
@@ -70,12 +61,12 @@ def aplicar_filtros(df, fecha_rango, categorias, bodegas, ciudades):
     return df_filtrado
 
 
-# --- Carga inicial ---
+# Carga inicial
 datasets_crudos, datasets_limpios, reportes_limpieza = cargar_y_limpiar()
 df_maestro = construir_maestro(datasets_limpios)
 
 
-# --- Sidebar: filtros globales + botón de refrescar ---
+# Sidebar: filtros globales + botón de refrescar
 with st.sidebar:
     st.title("📦 TechLogistics S.A.")
     st.caption("Sistema de Soporte a la Decisión — Consultoría Senior")
@@ -111,7 +102,7 @@ with st.sidebar:
 df_filtrado = aplicar_filtros(df_maestro, fecha_rango, categorias_sel, bodegas_sel, ciudades_sel)
 
 
-# --- Encabezado + tabs ---
+# Encabezado + tabs
 st.title("TechLogistics S.A. — Sistema de Soporte a la Decisión")
 st.caption(
     f"Mostrando **{len(df_filtrado):,}** de **{len(df_maestro):,}** transacciones "

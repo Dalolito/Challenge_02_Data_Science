@@ -1,22 +1,8 @@
 """
-tab_resumen_ejecutivo.py
---------------------------
-Pestaña "Análisis Final": narrativa de consultoría completa, dirigida a la
-junta directiva de TechLogistics S.A.S. — no explica código, explica por
-qué la empresa está perdiendo dinero y cómo los datos lo demuestran.
-
-Estructura (como la armaría un consultor senior en un informe real):
-1. Contexto del encargo — por qué nos contrataron.
-2. Qué se analizó — volumen y calidad de los datos recibidos.
-3. Qué se identificó — anclado explícitamente a las 5 Preguntas de Alta
-   Gerencia del enunciado del reto (se citan con su texto original).
-4. Plan de Acción — 3 recomendaciones tácticas priorizadas por complejidad.
-
-Recibe:
-- df_filtrado: dataset maestro ya filtrado por el sidebar (para los hallazgos).
-- datasets_crudos, reportes_limpieza: para poder describir con precisión
-  qué se recibió y qué problemas de calidad traía (sección 2), sin
-  recalcular la limpieza aquí.
+Pestaña "Análisis Final": informe de consultoría para la junta directiva.
+Estructura: 1) Contexto del encargo, 2) Qué se analizó, 3) Qué se identificó
+(anclado a las 5 preguntas del reto), 4) Plan de Acción.
+Recibe el dataset maestro filtrado y los reportes de limpieza (no recalcula nada).
 """
 
 import matplotlib
@@ -27,14 +13,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# Variables numéricas de negocio para la matriz de correlación. Se eligen a
-# mano (no "todas las columnas") para que el heatmap siga siendo legible y
-# relevante — es EDA multivariable general, no atado a ninguna de las 5
-# preguntas específicas del reto.
-#
-# NOTA: Brecha_Entrega se excluye a propósito — es Tiempo_Entrega_Real menos
-# una constante (el SLA de referencia), así que su correlación con
-# Tiempo_Entrega_Real es matemáticamente 1.00 y no aporta información nueva.
+# Variables numéricas para la matriz de correlación (elegidas a mano para que
+# el heatmap sea legible). Brecha_Entrega se excluye: al ser Tiempo_Entrega_Real
+# menos una constante, su correlación con ella es 1.00 y no aporta información.
 VARS_CORRELACION = [
     "Margen_Utilidad", "Precio_Venta_Final", "Costo_Envio", "Tiempo_Entrega_Real",
     "Stock_Actual", "Costo_Unitario_USD", "Rating_Producto", "Rating_Logistica",
@@ -42,9 +23,7 @@ VARS_CORRELACION = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Cálculo de hallazgos (igual que antes, reutilizado por la narrativa)
-# ---------------------------------------------------------------------------
+# Cálculo de hallazgos
 
 def _calcular_hallazgos(df: pd.DataFrame) -> dict:
     """Recalcula los números clave de las 5 preguntas del reto, en un solo dict."""
@@ -120,9 +99,7 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
     return h
 
 
-# ---------------------------------------------------------------------------
 # 1. Contexto del encargo
-# ---------------------------------------------------------------------------
 
 def _render_contexto():
     st.subheader("1. Contexto del encargo")
@@ -137,9 +114,7 @@ def _render_contexto():
     )
 
 
-# ---------------------------------------------------------------------------
 # 2. Qué se analizó
-# ---------------------------------------------------------------------------
 
 def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list, df_filtrado: pd.DataFrame = None):
     st.subheader("2. Qué se analizó")
@@ -164,8 +139,7 @@ def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list, df_fi
         "era en sí mismo evidencia de la hipótesis inicial de la junta."
     )
 
-    # Descripción cualitativa por dataset, usando lo que sí encontramos (sin
-    # inventar números que no vienen del reporte real).
+    # Descripción cualitativa por dataset (basada en el reporte real, sin inventar números)
     problemas_por_dataset = {
         "inventario": "costos unitarios con rangos absurdos (desde centavos hasta cientos de "
                       "miles de dólares), existencias negativas, categorías de producto "
@@ -244,9 +218,7 @@ def _render_matriz_correlacion(df: pd.DataFrame):
         )
 
 
-# ---------------------------------------------------------------------------
 # 3. Qué se identificó — anclado a las 5 preguntas oficiales del reto
-# ---------------------------------------------------------------------------
 
 def _render_hallazgos(h: dict):
     st.subheader("3. Qué se identificó")
@@ -255,7 +227,7 @@ def _render_hallazgos(h: dict):
         "junta directiva planteó al inicio del encargo."
     )
 
-    # --- Pregunta 1 ---
+    # Pregunta 1
     with st.container(border=True):
         st.markdown(
             "**Pregunta 1 — Fuga de Capital y Rentabilidad:** *¿Los SKU con margen negativo "
@@ -279,7 +251,7 @@ def _render_hallazgos(h: dict):
         else:
             st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
 
-    # --- Pregunta 2 ---
+    # Pregunta 2
     with st.container(border=True):
         st.markdown(
             "**Pregunta 2 — Crisis Logística y Cuellos de Botella:** *¿En qué ciudad o bodega "
@@ -307,7 +279,7 @@ def _render_hallazgos(h: dict):
         else:
             st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
 
-    # --- Pregunta 3 ---
+    # Pregunta 3
     with st.container(border=True):
         st.markdown(
             "**Pregunta 3 — Análisis de la Venta Invisible:** *¿Cuál es el impacto financiero "
@@ -326,7 +298,7 @@ def _render_hallazgos(h: dict):
         else:
             st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
 
-    # --- Pregunta 4 ---
+    # Pregunta 4
     with st.container(border=True):
         st.markdown(
             "**Pregunta 4 — Diagnóstico de Fidelidad:** *¿Hay categorías con stock alto pero "
@@ -352,7 +324,7 @@ def _render_hallazgos(h: dict):
         else:
             st.info("No se detectó ninguna categoría en paradoja con el filtro actual.")
 
-    # --- Pregunta 5 ---
+    # Pregunta 5
     with st.container(border=True):
         st.markdown(
             "**Pregunta 5 — Storytelling de Riesgo Operativo:** *¿Qué bodegas están operando "
@@ -380,9 +352,7 @@ def _render_hallazgos(h: dict):
             st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
 
 
-# ---------------------------------------------------------------------------
 # 4. Plan de Acción
-# ---------------------------------------------------------------------------
 
 def _render_plan_de_accion(h: dict):
     st.subheader("4. Plan de Acción Recomendado")
@@ -393,7 +363,7 @@ def _render_plan_de_accion(h: dict):
 
     recomendaciones = []
 
-    # --- Recomendación ligada a la Pregunta 1 (márgenes) ---
+    # Recomendación — Pregunta 1 (márgenes)
     if h.get("n_margen_negativo", 0) > 0:
         canal_txt = f", concentrada en el canal **{h['canal_peor_margen']}**" if "canal_peor_margen" in h else ""
         recomendaciones.append({
@@ -434,7 +404,7 @@ def _render_plan_de_accion(h: dict):
             ],
         })
 
-    # --- Recomendación ligada a la Pregunta 2 (logística) ---
+    # Recomendación — Pregunta 2 (logística)
     corr_log = h.get("correlacion_logistica")
     if "ciudad_logistica_critica" in h and pd.notna(corr_log) and abs(corr_log) >= 0.3:
         recomendaciones.append({
@@ -479,7 +449,7 @@ def _render_plan_de_accion(h: dict):
             ],
         })
 
-    # --- Recomendación ligada a la Pregunta 3 (SKU fantasma) ---
+    # Recomendación — Pregunta 3 (SKU fantasma)
     if h.get("n_fantasma", 0) > 0:
         recomendaciones.append({
             "pregunta": "Pregunta 3 — Venta invisible",
@@ -519,7 +489,7 @@ def _render_plan_de_accion(h: dict):
             ],
         })
 
-    # --- Recomendación ligada a la Pregunta 4 (paradoja stock/NPS) ---
+    # Recomendación — Pregunta 4 (paradoja stock/NPS)
     if "categorias_paradoja" in h:
         rating = h.get("rating_categoria_paradoja")
         if pd.notna(rating) and rating < 3.5:
@@ -560,7 +530,7 @@ def _render_plan_de_accion(h: dict):
             ],
         })
 
-    # --- Recomendación ligada a la Pregunta 5 (riesgo operativo / bodegas) ---
+    # Recomendación — Pregunta 5 (riesgo operativo / bodegas)
     corr_bod = h.get("correlacion_logistica_bodega")
     if "bodega_critica" in h and pd.notna(corr_bod) and corr_bod > 0.3:
         recomendaciones.append({
@@ -614,9 +584,7 @@ def _render_plan_de_accion(h: dict):
                 st.markdown(f"- {paso}")
 
 
-# ---------------------------------------------------------------------------
 # Render principal
-# ---------------------------------------------------------------------------
 
 def render(df_filtrado: pd.DataFrame, datasets_crudos: dict = None, reportes_limpieza: list = None):
     st.header("📋 Análisis Final")

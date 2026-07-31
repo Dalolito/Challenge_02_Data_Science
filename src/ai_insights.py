@@ -1,22 +1,15 @@
 """
-ai_insights.py
----------------
-Integración con Groq (modelo Llama-3) para generar recomendaciones
-estratégicas en tiempo real a partir del resumen estadístico de los
-datos filtrados por el usuario (Fase 3 del challenge).
-
-La API key se lee desde st.secrets["GROQ_API_KEY"], nunca hardcodeada.
+Integración con Groq (Llama-3) para generar recomendaciones estratégicas
+a partir del resumen estadístico de los datos filtrados (Fase 3).
+La API key se lee de st.secrets["GROQ_API_KEY"], nunca se hardcodea.
 """
 
 import pandas as pd
 
 
 def build_summary_stats(df: pd.DataFrame) -> dict:
-    """
-    Resume el DataFrame filtrado a un diccionario compacto de estadísticos,
-    para no mandarle el dataset completo al modelo (caro y lento) — solo
-    los números que ya calculó el dashboard.
-    """
+    """Comprime el DataFrame filtrado a un dict compacto de estadísticos,
+    para no enviar el dataset completo al modelo."""
     if df is None or df.empty:
         return {"n_transacciones": 0}
 
@@ -84,10 +77,7 @@ Sé directo, cuantitativo (usa las cifras dadas) y evita generalidades vacías."
 
 
 def get_ai_recommendation(summary_stats: dict, api_key: str) -> str:
-    """
-    Llama a Groq (Llama-3) con el resumen estadístico y devuelve el texto
-    de recomendación. Lanza excepción si falla — la tab decide cómo mostrarlo.
-    """
+    """Llama a Groq con el resumen y devuelve el texto. Lanza excepción si falla."""
     from groq import Groq
 
     if summary_stats.get("n_transacciones", 0) == 0:

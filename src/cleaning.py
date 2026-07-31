@@ -1,17 +1,7 @@
 """
-cleaning.py
-------------
-Módulo de limpieza y preprocesamiento de los tres datasets del proyecto.
-Transforma los DataFrames crudos cargados por data_loader.py en datos
-listos para análisis, generando un reporte de trazabilidad con cada
-decisión aplicada.
-
-v3 — El reporte de cada cambio ahora tiene 3 campos separados en vez de
-un solo párrafo, para que la pestaña de Auditoría lo muestre como una
-historia clara:
-  - identificacion: cómo se detectó el problema y qué tan grande era
-  - decision: qué técnica se aplicó, en concreto
-  - justificacion: por qué esa técnica y no otra (qué se buscó preservar)
+Limpieza y preprocesamiento de los 3 datasets. Cada cambio queda registrado
+en un reporte de trazabilidad con 3 campos: identificacion (qué se detectó),
+decision (qué técnica se aplicó) y justificacion (por qué esa técnica).
 """
 
 import re
@@ -19,10 +9,7 @@ import numpy as np
 import pandas as pd
 
 
-# ---------------------------------------------------------------------------
-# Diccionarios de normalización (keys en minúscula: comparación siempre
-# contra el valor ya pasado por .lower().strip())
-# ---------------------------------------------------------------------------
+# Diccionarios de normalización (comparación contra el valor ya en minúscula)
 
 CIUDAD_MAP = {
     "med": "Medellín", "medellin": "Medellín", "medellín": "Medellín",
@@ -60,9 +47,7 @@ CATEGORIA_MAP = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Helper para construir cada entrada del reporte con el mismo formato
-# ---------------------------------------------------------------------------
+# Helper para armar cada entrada del reporte de trazabilidad
 
 def _registrar_cambio(report: dict, columna: str, identificacion: str, decision: str, justificacion: str):
     """Agrega un cambio al reporte en el formato narrativo de 3 partes."""
@@ -74,9 +59,7 @@ def _registrar_cambio(report: dict, columna: str, identificacion: str, decision:
     })
 
 
-# ---------------------------------------------------------------------------
 # Helpers de parseo / normalización por celda
-# ---------------------------------------------------------------------------
 
 def _parse_lead_time(val):
     if pd.isna(val):
@@ -130,16 +113,14 @@ def _impute_median_by_group(series, group_series):
     return result
 
 
-# ---------------------------------------------------------------------------
 # Limpieza de Inventario
-# ---------------------------------------------------------------------------
 
 def clean_inventario(df: pd.DataFrame):
     report = {"dataset": "inventario", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
 
-    # --- Costo_Unitario_USD ---
+    # Costo_Unitario_USD
     if "Costo_Unitario_USD" in df.columns:
         col = "Costo_Unitario_USD"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -158,7 +139,7 @@ def clean_inventario(df: pd.DataFrame):
                            "necesario para corregir un solo valor.",
         )
 
-    # --- Lead_Time_Dias: parseo de texto ---
+    # Lead_Time_Dias: parseo de texto
     if "Lead_Time_Dias" in df.columns:
         col = "Lead_Time_Dias"
         inmediato_count = int(df[col].astype(str).str.strip().str.lower().eq("inmediato").sum())
@@ -178,7 +159,7 @@ def clean_inventario(df: pd.DataFrame):
                            "más neutral: no favorece un escenario optimista ni uno conservador.",
         )
 
-    # --- Stock_Actual ---
+    # Stock_Actual
     if "Stock_Actual" in df.columns:
         col = "Stock_Actual"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -198,7 +179,7 @@ def clean_inventario(df: pd.DataFrame):
                            "frente a esa asimetría.",
         )
 
-    # --- Categoria: normalización ---
+    # Categoria: normalización
     if "Categoria" in df.columns:
         col = "Categoria"
         antes_unique = df[col].nunique()
@@ -242,7 +223,7 @@ def clean_inventario(df: pd.DataFrame):
     if "Punto_Reorden" in df.columns:
         df["Punto_Reorden"] = pd.to_numeric(df["Punto_Reorden"], errors="coerce")
 
-    # --- Lead_Time_Dias: imputar los nulos genuinos (requiere Categoria ya limpia) ---
+    # Lead_Time_Dias: imputar nulos genuinos (requiere Categoria limpia)
     if "Lead_Time_Dias" in df.columns:
         col = "Lead_Time_Dias"
         nulos_antes_imputar = int(df[col].isna().sum())
@@ -269,16 +250,14 @@ def clean_inventario(df: pd.DataFrame):
     return df, report
 
 
-# ---------------------------------------------------------------------------
 # Limpieza de Transacciones
-# ---------------------------------------------------------------------------
 
 def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" = None):
     report = {"dataset": "transacciones", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
 
-    # --- Cantidad_Vendida ---
+    # Cantidad_Vendida
     if "Cantidad_Vendida" in df.columns:
         col = "Cantidad_Vendida"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -302,7 +281,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
     if "Precio_Venta_Final" in df.columns:
         df["Precio_Venta_Final"] = pd.to_numeric(df["Precio_Venta_Final"], errors="coerce")
 
-    # --- Costo_Envio ---
+    # Costo_Envio
     if "Costo_Envio" in df.columns and "Ciudad_Destino" in df.columns:
         col = "Costo_Envio"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -318,7 +297,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
                            "única para todo el país.",
         )
 
-    # --- Tiempo_Entrega_Real ---
+    # Tiempo_Entrega_Real
     if "Tiempo_Entrega_Real" in df.columns:
         col = "Tiempo_Entrega_Real"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -340,7 +319,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
                            "de error distorsione cualquier promedio de tiempo de entrega.",
         )
 
-    # --- Ciudad_Destino ---
+    # Ciudad_Destino
     if "Ciudad_Destino" in df.columns:
         col = "Ciudad_Destino"
         resultado = df[col].apply(_normalize_ciudad)
@@ -366,7 +345,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
         col = "Canal_Venta"
         df[col] = df[col].astype(str).str.strip().str.lower().map(CANAL_MAP).fillna(df[col])
 
-    # --- Estado_Envio ---
+    # Estado_Envio
     if "Estado_Envio" in df.columns:
         col = "Estado_Envio"
         nulos_ee = int(df[col].isna().sum())
@@ -385,7 +364,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
                            "cliente. Es preferible mostrar la incertidumbre que ocultarla.",
         )
 
-    # --- Fecha_Venta ---
+    # Fecha_Venta
     if "Fecha_Venta" in df.columns:
         col = "Fecha_Venta"
         no_parse = int(pd.to_datetime(df[col], errors="coerce", dayfirst=True).isna().sum())
@@ -401,7 +380,7 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
                            "distorsionaría cualquier análisis de tendencia temporal.",
         )
 
-    # --- SKU fantasma ---
+    # SKU fantasma
     if inventario_df is not None and "SKU_ID" in df.columns and "SKU_ID" in inventario_df.columns:
         skus_inventario = set(inventario_df["SKU_ID"].dropna().unique())
         df["SKU_Fantasma"] = ~df["SKU_ID"].isin(skus_inventario)
@@ -426,16 +405,14 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
     return df, report
 
 
-# ---------------------------------------------------------------------------
 # Limpieza de Feedback
-# ---------------------------------------------------------------------------
 
 def clean_feedback(df: pd.DataFrame):
     report = {"dataset": "feedback", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
 
-    # --- Duplicados exactos ---
+    # Duplicados exactos
     duplicados = int(df.duplicated(keep="first").sum())
     if duplicados > 0:
         df = df.drop_duplicates(keep="first")
@@ -449,7 +426,7 @@ def clean_feedback(df: pd.DataFrame):
                            "(ver el siguiente paso), donde el contenido sí es diferente.",
         )
 
-    # --- Colisión de Feedback_ID ---
+    # Colisión de Feedback_ID
     if "Feedback_ID" in df.columns:
         dup_mask = df["Feedback_ID"].duplicated(keep=False)
         n_colisiones = int(dup_mask.sum())
@@ -472,7 +449,7 @@ def clean_feedback(df: pd.DataFrame):
                            "el contenido del registro.",
         )
 
-    # --- Ratings fuera de escala ---
+    # Ratings fuera de escala
     for col in ["Rating_Producto", "Rating_Logistica"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -492,7 +469,7 @@ def clean_feedback(df: pd.DataFrame):
                                "dejar el código de error o intentar adivinar el valor real.",
             )
 
-    # --- Edad_Cliente ---
+    # Edad_Cliente
     if "Edad_Cliente" in df.columns:
         col = "Edad_Cliente"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -510,7 +487,7 @@ def clean_feedback(df: pd.DataFrame):
                            "el problema original, a diferencia de la media.",
         )
 
-    # --- Satisfaccion_NPS ---
+    # Satisfaccion_NPS
     if "Satisfaccion_NPS" in df.columns:
         col = "Satisfaccion_NPS"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -532,7 +509,7 @@ def clean_feedback(df: pd.DataFrame):
         df[col] = df[col].astype(str).str.strip().str.lower().map(TICKET_MAP)
         df[col] = df[col].fillna(0).astype(int)
 
-    # --- Recomienda_Marca ---
+    # Recomienda_Marca
     if "Recomienda_Marca" in df.columns:
         col = "Recomienda_Marca"
         valores_crudos = df[col].dropna().unique().tolist()
@@ -551,7 +528,7 @@ def clean_feedback(df: pd.DataFrame):
                            "análisis de lealtad.",
         )
 
-    # --- Comentario_Texto ---
+    # Comentario_Texto
     if "Comentario_Texto" in df.columns:
         col = "Comentario_Texto"
         placeholders_set = {"N/A", "n/a", "NA", "na", "---", "", "-"}
@@ -573,9 +550,7 @@ def clean_feedback(df: pd.DataFrame):
     return df, report
 
 
-# ---------------------------------------------------------------------------
 # Pipeline completo
-# ---------------------------------------------------------------------------
 
 def clean_all_datasets(datasets: dict):
     reportes = []

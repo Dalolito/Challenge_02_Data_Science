@@ -1,11 +1,6 @@
 """
-tab_ia_insights.py
----------------------
-Pestaña "Insights de IA": botón que dispara src/ai_insights.py con el
-resumen estadístico de los datos filtrados actualmente por el usuario.
-
-La API key de Groq se lee de st.secrets["GROQ_API_KEY"] (nunca hardcodeada,
-nunca pedida por un input de texto en la interfaz).
+Pestaña "Insights de IA": dispara src/ai_insights.py con el resumen de los
+datos filtrados. La API key se lee de st.secrets["GROQ_API_KEY"], nunca hardcodeada.
 """
 
 import os
@@ -33,9 +28,7 @@ def render(df_filtrado):
     with st.expander("Ver el resumen estadístico que se le enviaría al modelo"):
         st.json(resumen)
 
-    # st.secrets.get() lanza StreamlitSecretNotFoundError si el archivo
-    # secrets.toml no existe (no solo si falta la key) — por eso el try/except,
-    # en vez de solo .get(), que no basta para cubrir ese caso.
+    # .get() lanza error si secrets.toml no existe, por eso el try/except
     try:
         api_key = st.secrets.get("GROQ_API_KEY", None)
     except Exception:

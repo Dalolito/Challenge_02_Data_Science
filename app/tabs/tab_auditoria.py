@@ -1,24 +1,9 @@
 """
-tab_auditoria.py
------------------
-Pestaña "Auditoría": Módulo de Transparencia del dashboard.
-
-Muestra, para cada dataset:
-1. Health Score antes/después de limpieza.
-2. Qué errores se encontraron y cómo se corrigieron (usa los reportes
-   que devuelve src/cleaning.py — no recalcula nada).
-3. Comparación ANTES vs DESPUÉS con ejemplos reales de filas.
-4. Registros marcados/excluidos (flags: SKU_Fantasma, Ciudad_Invalida, etc.)
-   con opción de verlos y descargarlos.
-5. Descarga del reporte completo de limpieza.
-
-La exploración multivariable (matriz de correlación) vive en la pestaña
-Análisis Final, no aquí — Auditoría es estrictamente sobre calidad y
-trazabilidad de la limpieza, no sobre análisis de negocio.
-
-Se llama desde app.py así:
-    from app.tabs import tab_auditoria
-    tab_auditoria.render(datasets_crudos, datasets_limpios, reportes)
+Pestaña "Auditoría" (módulo de transparencia): calidad en 4 dimensiones,
+errores detectados y corregidos, antes/después con filas reales, registros
+marcados (flags) y descarga del reporte de limpieza. Usa los reportes de
+src/cleaning.py — no recalcula nada. Se llama desde app.py como
+tab_auditoria.render(datasets_crudos, datasets_limpios, reportes).
 """
 
 import io
@@ -32,17 +17,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from quality_metrics import resumen_calidad_completo
 
 
-# ---------------------------------------------------------------------------
 # Utilidades internas
-# ---------------------------------------------------------------------------
 
 def _tabla_4_dimensiones(datasets_crudos: dict, datasets_limpios: dict) -> pd.DataFrame:
-    """
-    Arma la tabla comparativa antes/después para las 4 dimensiones de
-    calidad. Consistencia no aplica al dataset crudo (las columnas flag
-    solo existen tras limpiar), así que queda vacía ahí — no se inventa
-    un número.
-    """
+    """Tabla antes/después de las 4 dimensiones. Consistencia es None en el
+    crudo porque las columnas flag solo existen tras limpiar."""
     filas = []
     for nombre in datasets_crudos:
         antes = resumen_calidad_completo(datasets_crudos[nombre], nombre)
@@ -84,9 +63,7 @@ def _descargar_reporte_csv(reportes: list) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
-# ---------------------------------------------------------------------------
 # Render principal
-# ---------------------------------------------------------------------------
 
 def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     st.header("🔍 Auditoría de Calidad — Módulo de Transparencia")
@@ -96,9 +73,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
         "esta pestaña se actualiza sola."
     )
 
-    # -----------------------------------------------------------------
     # 1. Calidad en 4 dimensiones (no solo nulos)
-    # -----------------------------------------------------------------
     st.subheader("1. Calidad de datos — 4 dimensiones")
     st.caption(
         "Medir solo '% de nulos' esconde problemas: un Rating_Producto=99 o una "
@@ -153,9 +128,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
 
     st.divider()
 
-    # -----------------------------------------------------------------
     # 2. Qué se encontró y cómo se corrigió, por dataset
-    # -----------------------------------------------------------------
     st.subheader("2. Errores detectados y corrección aplicada")
 
     tabs_dataset = st.tabs([nombres_bonitos.get(r["dataset"], r["dataset"]) for r in reportes])
@@ -185,9 +158,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
 
     st.divider()
 
-    # -----------------------------------------------------------------
     # 3. Antes vs Después — muestra de filas reales
-    # -----------------------------------------------------------------
     st.subheader("3. Antes vs Después — ejemplo de filas")
     st.caption("Selecciona un dataset y una columna para comparar los valores crudos contra los ya limpios.")
 
@@ -214,9 +185,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
 
     st.divider()
 
-    # -----------------------------------------------------------------
     # 4. Registros marcados / excluidos (flags de transparencia)
-    # -----------------------------------------------------------------
     st.subheader("4. Ver registros excluidos / marcados")
     st.caption(
         "Estas columnas de flag las crea `cleaning.py` para casos que NO se pueden "
@@ -262,9 +231,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
 
     st.divider()
 
-    # -----------------------------------------------------------------
     # 5. Descarga del reporte completo de limpieza
-    # -----------------------------------------------------------------
     st.subheader("5. Reporte completo de limpieza")
     st.download_button(
         "⬇️ Descargar reporte de limpieza (CSV)",

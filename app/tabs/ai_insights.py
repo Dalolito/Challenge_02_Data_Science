@@ -1,42 +1,23 @@
 """
-ai_insights.py
----------------
-Integración con Groq (modelo Llama-3) para generar recomendaciones
-estratégicas en tiempo real a partir del resumen estadístico de los
-datos filtrados por el usuario (Fase 3 del challenge).
-
-v2 — El resumen que se le manda al modelo ahora incluye el mismo nivel de
-detalle que ya calculamos para la pestaña de Análisis Final (top SKUs con
-peor margen, desglose por canal/ciudad/categoría/bodega, correlaciones),
-en vez de solo promedios generales. El prompt pide una respuesta
-estructurada de consultoría completa (diagnóstico por pregunta + plan de
-acción), no solo 3 párrafos genéricos.
-
-La API key se lee desde st.secrets["GROQ_API_KEY"], nunca hardcodeada.
+Integración con Groq (Llama-3): genera recomendaciones estratégicas a partir
+de un resumen estadístico detallado (igual al de Análisis Final), por pregunta
+de negocio. La API key se lee de st.secrets["GROQ_API_KEY"], nunca hardcodeada.
 """
 
 import pandas as pd
 
 
-# ---------------------------------------------------------------------------
-# Resumen estadístico robusto
-# ---------------------------------------------------------------------------
+# Resumen estadístico detallado
 
 def build_summary_stats(df: pd.DataFrame) -> dict:
-    """
-    Resume el DataFrame filtrado a un diccionario ESTRUCTURADO y DETALLADO
-    (no solo promedios globales), para que el modelo tenga evidencia
-    suficiente para un análisis por pregunta de negocio, no solo generalidades.
-
-    No manda el dataset completo (caro y lento) — manda agregaciones ya
-    calculadas, con el mismo nivel de detalle que la pestaña Análisis Final.
-    """
+    """Comprime el DataFrame a un dict estructurado y detallado (agregaciones,
+    no el dataset completo) para que el modelo analice por pregunta de negocio."""
     if df is None or df.empty:
         return {"n_transacciones": 0}
 
     resumen = {"n_transacciones": len(df)}
 
-    # --- Rentabilidad (Pregunta 1) ---
+    # Rentabilidad (Pregunta 1)
     if "Margen_Utilidad" in df.columns:
         df_margen = df[df["Margen_Utilidad"].notna()]
         if not df_margen.empty:
@@ -61,7 +42,7 @@ def build_summary_stats(df: pd.DataFrame) -> dict:
                     canal: round(valor, 2) for canal, valor in por_canal.items()
                 }
 
-    # --- Logística (Pregunta 2) ---
+    # Logística (Pregunta 2)
     if {"Ciudad_Destino", "Tiempo_Entrega_Real", "Satisfaccion_NPS"}.issubset(df.columns):
         df_val = df.dropna(subset=["Ciudad_Destino", "Tiempo_Entrega_Real", "Satisfaccion_NPS"])
         if not df_val.empty:
@@ -81,7 +62,7 @@ def build_summary_stats(df: pd.DataFrame) -> dict:
                 },
             }
 
-    # --- Venta invisible / SKU fantasma (Pregunta 3) ---
+    # Venta invisible / SKU fantasma (Pregunta 3)
     if "SKU_Fantasma" in df.columns and "Precio_Venta_Final" in df.columns:
         n_fantasma = int(df["SKU_Fantasma"].sum())
         ingreso_total = df["Precio_Venta_Final"].sum()
@@ -96,7 +77,7 @@ def build_summary_stats(df: pd.DataFrame) -> dict:
             por_canal = df[df["SKU_Fantasma"]]["Canal_Venta"].value_counts()
             resumen["venta_invisible"]["distribucion_por_canal"] = por_canal.to_dict()
 
-    # --- Paradoja stock / NPS por categoría (Pregunta 4) ---
+    # Paradoja stock / NPS por categoría (Pregunta 4)
     if {"Categoria", "Stock_Actual", "Satisfaccion_NPS"}.issubset(df.columns):
         df_val = df.dropna(subset=["Categoria", "Stock_Actual", "Satisfaccion_NPS"])
         if not df_val.empty:
@@ -107,7 +88,7 @@ def build_summary_stats(df: pd.DataFrame) -> dict:
             ).round(2)
             resumen["fidelidad_por_categoria"] = resumen_cat.to_dict(orient="index")
 
-    # --- Riesgo operativo por bodega (Pregunta 5) ---
+    # Riesgo operativo por bodega (Pregunta 5)
     if {"Bodega_Origen", "Ultima_Revision", "Ticket_Soporte_Abierto"}.issubset(df.columns):
         df_val = df.dropna(subset=["Bodega_Origen", "Ultima_Revision"]).copy()
         if not df_val.empty:
@@ -123,15 +104,11 @@ def build_summary_stats(df: pd.DataFrame) -> dict:
     return resumen
 
 
-# ---------------------------------------------------------------------------
 # Prompt de consultoría completa
-# ---------------------------------------------------------------------------
 
 def build_prompt(summary_stats: dict) -> str:
-    """
-    Arma el prompt en español pidiendo un análisis de consultoría completo,
-    estructurado por pregunta de negocio, no solo 3 párrafos genéricos.
-    """
+    """Arma el prompt en español pidiendo un análisis de consultoría completo,
+    estructurado por pregunta de negocio."""
     import json
     resumen_json = json.dumps(summary_stats, ensure_ascii=False, indent=2, default=str)
 
@@ -168,15 +145,10 @@ con el cliente" — cada recomendación debe estar atada a una cifra concreta de
 resumen de datos."""
 
 
-# ---------------------------------------------------------------------------
 # Llamada a Groq
-# ---------------------------------------------------------------------------
 
 def get_ai_recommendation(summary_stats: dict, api_key: str) -> str:
-    """
-    Llama a Groq (Llama-3) con el resumen estadístico y devuelve el texto
-    de recomendación. Lanza excepción si falla — la tab decide cómo mostrarlo.
-    """
+    """Llama a Groq con el resumen y devuelve el texto. Lanza excepción si falla."""
     from groq import Groq
 
     if summary_stats.get("n_transacciones", 0) == 0:
