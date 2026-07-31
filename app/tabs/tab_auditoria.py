@@ -10,42 +10,26 @@ Muestra, para cada dataset:
 3. Comparación ANTES vs DESPUÉS con ejemplos reales de filas.
 4. Registros marcados/excluidos (flags: SKU_Fantasma, Ciudad_Invalida, etc.)
    con opción de verlos y descargarlos.
-5. Matriz de correlación multivariable (EDA general, no atado a ninguna
-   de las 5 preguntas específicas — sirve para detectar relaciones que
-   no se estaban buscando explícitamente).
+5. Descarga del reporte completo de limpieza.
+
+La exploración multivariable (matriz de correlación) vive en la pestaña
+Análisis Final, no aquí — Auditoría es estrictamente sobre calidad y
+trazabilidad de la limpieza, no sobre análisis de negocio.
 
 Se llama desde app.py así:
     from app.tabs import tab_auditoria
-    tab_auditoria.render(datasets_crudos, datasets_limpios, reportes, df_maestro)
+    tab_auditoria.render(datasets_crudos, datasets_limpios, reportes)
 """
 
 import io
 import os
 import sys
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from quality_metrics import resumen_calidad_completo
-
-# Variables numéricas de negocio para la matriz de correlación. Se eligen a
-# mano (no "todas las columnas") para que el heatmap siga siendo legible y
-# relevante — es EDA multivariable general, no atado a ninguna de las 5
-# preguntas específicas del reto.
-#
-# NOTA: Brecha_Entrega se excluye a propósito — es Tiempo_Entrega_Real menos
-# una constante (el SLA de referencia), así que su correlación con
-# Tiempo_Entrega_Real es matemáticamente 1.00 y no aporta información nueva.
-VARS_CORRELACION = [
-    "Margen_Utilidad", "Precio_Venta_Final", "Costo_Envio", "Tiempo_Entrega_Real",
-    "Stock_Actual", "Costo_Unitario_USD", "Rating_Producto", "Rating_Logistica",
-    "Satisfaccion_NPS", "Cantidad_Vendida", "Edad_Cliente",
-]
 
 
 # ---------------------------------------------------------------------------
@@ -100,59 +84,11 @@ def _descargar_reporte_csv(reportes: list) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
-def _render_matriz_correlacion(df_maestro: pd.DataFrame):
-    st.subheader("6. Matriz de correlación (EDA multivariable)")
-    st.caption(
-        "A diferencia de las correlaciones puntuales de las pestañas Operaciones y Cliente "
-        "(elegidas de antemano porque el reto las pedía), esta matriz cruza todas las "
-        "variables numéricas de negocio entre sí — sirve para detectar relaciones que no se "
-        "estaban buscando explícitamente."
-    )
-
-    disponibles = [c for c in VARS_CORRELACION if c in df_maestro.columns]
-    if len(disponibles) < 2:
-        st.info("No hay suficientes variables numéricas disponibles para calcular la matriz.")
-        return
-
-    corr = df_maestro[disponibles].corr(numeric_only=True)
-
-    fig, ax = plt.subplots(figsize=(9, 7))
-    sns.heatmap(
-        corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0,
-        vmin=-1, vmax=1, square=True, linewidths=0.5,
-        annot_kws={"size": 8}, ax=ax, cbar_kws={"shrink": 0.8},
-    )
-    ax.set_title("Correlación entre variables numéricas de negocio")
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
-
-    # Destacar la correlación más fuerte (fuera de la diagonal) como hallazgo
-    import numpy as np
-    mascara_diagonal = pd.DataFrame(
-        np.eye(len(corr), dtype=bool), index=corr.index, columns=corr.columns,
-    )
-    corr_sin_diagonal = corr.mask(mascara_diagonal)
-    corr_stack = corr_sin_diagonal.abs().stack()
-    if not corr_stack.empty:
-        par_mas_fuerte = corr_stack.idxmax()
-        valor_mas_fuerte = corr.loc[par_mas_fuerte[0], par_mas_fuerte[1]]
-        st.markdown(
-            f"De la matriz anterior observamos que la relación más fuerte (fuera de las "
-            f"variables ya investigadas en las 5 preguntas oficiales) es entre "
-            f"**{par_mas_fuerte[0]}** y **{par_mas_fuerte[1]}** ({valor_mas_fuerte:.2f}). "
-            "El resto de las variables muestran correlaciones cercanas a cero, lo que "
-            "confirma que no hay relaciones ocultas relevantes fuera de las ya identificadas "
-            "en el análisis dirigido por pregunta de negocio."
-        )
-
-
 # ---------------------------------------------------------------------------
 # Render principal
 # ---------------------------------------------------------------------------
 
-def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list, df_maestro: pd.DataFrame = None):
+def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     st.header("🔍 Auditoría de Calidad — Módulo de Transparencia")
     st.caption(
         "Todo lo que se muestra aquí sale directamente de `src/cleaning.py`. "
@@ -336,10 +272,3 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list, df_mae
         file_name="reporte_limpieza.csv",
         mime="text/csv",
     )
-
-    # -----------------------------------------------------------------
-    # 6. Matriz de correlación (EDA multivariable general)
-    # -----------------------------------------------------------------
-    if df_maestro is not None and not df_maestro.empty:
-        st.divider()
-        _render_matriz_correlacion(df_maestro)

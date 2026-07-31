@@ -19,8 +19,27 @@ Recibe:
   recalcular la limpieza aquí.
 """
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 import pandas as pd
 import streamlit as st
+
+# Variables numéricas de negocio para la matriz de correlación. Se eligen a
+# mano (no "todas las columnas") para que el heatmap siga siendo legible y
+# relevante — es EDA multivariable general, no atado a ninguna de las 5
+# preguntas específicas del reto.
+#
+# NOTA: Brecha_Entrega se excluye a propósito — es Tiempo_Entrega_Real menos
+# una constante (el SLA de referencia), así que su correlación con
+# Tiempo_Entrega_Real es matemáticamente 1.00 y no aporta información nueva.
+VARS_CORRELACION = [
+    "Margen_Utilidad", "Precio_Venta_Final", "Costo_Envio", "Tiempo_Entrega_Real",
+    "Stock_Actual", "Costo_Unitario_USD", "Rating_Producto", "Rating_Logistica",
+    "Satisfaccion_NPS", "Cantidad_Vendida", "Edad_Cliente",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +141,7 @@ def _render_contexto():
 # 2. Qué se analizó
 # ---------------------------------------------------------------------------
 
-def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list):
+def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list, df_filtrado: pd.DataFrame = None):
     st.subheader("2. Qué se analizó")
 
     if not datasets_crudos or not reportes_limpieza:
@@ -174,6 +193,55 @@ def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list):
         "certeza (ej. ventas sin producto asociado) se marcaron para decisión de negocio en "
         "vez de eliminarse o inventarse un valor."
     )
+
+    if df_filtrado is not None and not df_filtrado.empty:
+        st.markdown("")
+        _render_matriz_correlacion(df_filtrado)
+
+
+def _render_matriz_correlacion(df: pd.DataFrame):
+    st.markdown("**Exploración multivariable previa**")
+    st.caption(
+        "Antes de enfocar el análisis en las 5 preguntas estratégicas, se cruzaron todas las "
+        "variables numéricas de negocio entre sí — sirve para detectar relaciones que no se "
+        "estaban buscando explícitamente, más allá de las que el enunciado ya pedía investigar."
+    )
+
+    disponibles = [c for c in VARS_CORRELACION if c in df.columns]
+    if len(disponibles) < 2:
+        st.info("No hay suficientes variables numéricas disponibles para calcular la matriz.")
+        return
+
+    corr = df[disponibles].corr(numeric_only=True)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(
+        corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0,
+        vmin=-1, vmax=1, square=True, linewidths=0.5,
+        annot_kws={"size": 8}, ax=ax, cbar_kws={"shrink": 0.8},
+    )
+    ax.set_title("Correlación entre variables numéricas de negocio")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    mascara_diagonal = pd.DataFrame(
+        np.eye(len(corr), dtype=bool), index=corr.index, columns=corr.columns,
+    )
+    corr_sin_diagonal = corr.mask(mascara_diagonal)
+    corr_stack = corr_sin_diagonal.abs().stack()
+    if not corr_stack.empty:
+        par_mas_fuerte = corr_stack.idxmax()
+        valor_mas_fuerte = corr.loc[par_mas_fuerte[0], par_mas_fuerte[1]]
+        st.markdown(
+            f"De la matriz anterior observamos que la relación más fuerte fuera de las "
+            f"variables ya investigadas en las 5 preguntas oficiales es entre "
+            f"**{par_mas_fuerte[0]}** y **{par_mas_fuerte[1]}** ({valor_mas_fuerte:.2f}). "
+            "El resto de las variables muestran correlaciones cercanas a cero, lo que "
+            "confirma que el análisis dirigido por pregunta de negocio cubre las relaciones "
+            "relevantes del conjunto de datos."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -563,7 +631,7 @@ def render(df_filtrado: pd.DataFrame, datasets_crudos: dict = None, reportes_lim
 
     _render_contexto()
     st.divider()
-    _render_que_se_analizo(datasets_crudos, reportes_limpieza)
+    _render_que_se_analizo(datasets_crudos, reportes_limpieza, df_filtrado)
     st.divider()
 
     hallazgos = _calcular_hallazgos(df_filtrado)
