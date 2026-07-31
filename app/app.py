@@ -1,5 +1,17 @@
 """
-Entrada de la aplicacion Streamlit. Orquesta la carga, limpieza, integración y renderizado de tabs.
+app.py
+------
+Punto de entrada de la aplicación Streamlit. Orquesta:
+- Carga de datos crudos (src/data_loader.py)
+- Limpieza (src/cleaning.py)
+- Integración + variables derivadas (src/feature_engineering.py)
+- Sidebar con filtros globales
+- Las 4 pestañas del dashboard (app/tabs/)
+
+No contiene lógica de limpieza ni cálculos de negocio: solo orquesta
+llamadas a src/ y renderiza las tabs.
+
+Ejecutar con: streamlit run app/app.py   (desde la raíz del repo)
 """
 
 import os
@@ -14,7 +26,7 @@ from data_loader import load_all_datasets
 from cleaning import clean_all_datasets
 from feature_engineering import build_master_dataset
 
-from tabs import tab_auditoria, tab_operaciones, tab_cliente, tab_ia_insights
+from tabs import tab_auditoria, tab_operaciones, tab_cliente, tab_ia_insights, tab_resumen_ejecutivo
 
 
 st.set_page_config(page_title="TechLogistics S.A. | DSS", page_icon="📦", layout="wide")
@@ -106,8 +118,8 @@ st.caption(
     "según los filtros aplicados."
 )
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🔍 Auditoría", "📦 Operaciones", "😊 Cliente", "🤖 Insights de IA",
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🔍 Auditoría", "📦 Operaciones", "😊 Cliente", "🤖 Insights de IA", "📋 Análisis Final",
 ])
 
 with tab1:
@@ -121,3 +133,6 @@ with tab3:
 
 with tab4:
     tab_ia_insights.render(df_filtrado)
+
+with tab5:
+    tab_resumen_ejecutivo.render(df_filtrado)

@@ -58,6 +58,16 @@ def _seccion_margenes(df: pd.DataFrame):
     st.markdown("**Top 15 SKU con mayor pérdida acumulada**")
     st.bar_chart(top_sku_negativo["Perdida_Total"])
 
+    peor_sku = top_sku_negativo.index[0]
+    peor_perdida = top_sku_negativo.iloc[0]["Perdida_Total"]
+    st.markdown(
+        f"De la gráfica anterior observamos que el SKU **{peor_sku}** concentra la mayor "
+        f"pérdida individual, con **${abs(peor_perdida):,.0f} USD** acumulados en negativo. "
+        f"Entre los 15 SKU más problemáticos suman **${abs(top_sku_negativo['Perdida_Total'].sum()):,.0f} USD** "
+        "de pérdida — no es un caso aislado, es un grupo de productos que la empresa debería "
+        "revisar de precio o descatalogar."
+    )
+
     # --- Desglose por canal: ¿es un problema puntual o generalizado? ---
     if "Canal_Venta" in df_negativo.columns:
         st.markdown("**¿Se concentra en algún canal de venta?**")
@@ -67,6 +77,15 @@ def _seccion_margenes(df: pd.DataFrame):
             .sort_values("Perdida_Total")
         )
         st.bar_chart(por_canal["Perdida_Total"])
+
+        canal_peor = por_canal.index[0]
+        st.markdown(
+            f"De la gráfica anterior observamos que el canal **{canal_peor}** es donde más se "
+            f"concentra la pérdida (${abs(por_canal.iloc[0]['Perdida_Total']):,.0f} USD en "
+            f"{int(por_canal.iloc[0]['N_Ventas']):,} ventas). Esto sugiere que el problema no es "
+            "solo de producto, sino también de cómo se está fijando el precio en ese canal "
+            "específico frente a los demás."
+        )
 
     with st.expander("Ver tabla completa de SKUs con margen negativo"):
         tabla = (
@@ -121,6 +140,24 @@ def _seccion_logistica(df: pd.DataFrame):
         nps_por_ciudad = df_validos.groupby("Ciudad_Destino")["Satisfaccion_NPS"].mean().sort_values()
         st.bar_chart(nps_por_ciudad)
 
+    ciudad_mas_lenta = te_por_ciudad.index[0]
+    ciudad_peor_nps = nps_por_ciudad.index[0]
+    if ciudad_mas_lenta == ciudad_peor_nps:
+        st.markdown(
+            f"De las gráficas anteriores observamos que **{ciudad_mas_lenta}** es al mismo "
+            "tiempo la ciudad con el tiempo de entrega más largo y el NPS más bajo — es un "
+            "primer indicio de que ahí el retraso logístico sí le está costando satisfacción "
+            "a la empresa."
+        )
+    else:
+        st.markdown(
+            f"De las gráficas anteriores observamos que **{ciudad_mas_lenta}** tiene el mayor "
+            f"tiempo de entrega, pero **{ciudad_peor_nps}** es la que peor NPS reporta — no son "
+            "la misma ciudad, así que el tiempo de entrega no parece ser, por sí solo, el "
+            "principal motivo de insatisfacción. Hay que revisar la correlación real antes de "
+            "sacar una conclusión."
+        )
+
     # --- Correlación Tiempo_Entrega vs NPS, calculada POR ciudad ---
     st.markdown("**Correlación Tiempo de Entrega ↔ NPS, por ciudad**")
     st.caption(
@@ -142,11 +179,22 @@ def _seccion_logistica(df: pd.DataFrame):
         st.dataframe(tabla_corr, width="stretch", hide_index=True)
 
         zona_critica = tabla_corr.iloc[0]
-        st.error(
-            f"🚨 **Zona crítica: {zona_critica['Ciudad_Destino']}** — correlación de "
-            f"{zona_critica['Correlacion_Tiempo_vs_NPS']:.2f}. Es la ciudad donde el "
-            "tiempo de entrega afecta más fuertemente la satisfacción del cliente."
-        )
+        corr_valor = zona_critica["Correlacion_Tiempo_vs_NPS"]
+        if abs(corr_valor) >= 0.3:
+            st.markdown(
+                f"De la tabla anterior observamos que **{zona_critica['Ciudad_Destino']}** tiene "
+                f"la correlación más negativa ({corr_valor:.2f}) entre tiempo de entrega y NPS — "
+                "es la ciudad donde el retraso logístico más le está costando satisfacción del "
+                "cliente a la empresa, y la primera candidata para un cambio de operador logístico."
+            )
+        else:
+            st.markdown(
+                f"De la tabla anterior observamos que, incluso en la ciudad con la correlación "
+                f"más marcada (**{zona_critica['Ciudad_Destino']}**, {corr_valor:.2f}), la relación "
+                "entre tiempo de entrega y NPS es débil. Esto sugiere que, con los datos actuales, "
+                "la logística no es el principal motor de la insatisfacción del cliente — vale la "
+                "pena buscar la causa en otro factor, como la calidad del producto."
+            )
 
     # --- Lo mismo pero por bodega, si está disponible ---
     if "Bodega_Origen" in df_validos.columns:
@@ -191,16 +239,32 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
 
     # --- ¿Se concentra en ciudades, canales o fechas específicas? ---
     c1, c2 = st.columns(2)
+    canal_top = None
+    ciudad_top = None
     with c1:
         if "Canal_Venta" in df.columns:
             st.markdown("**Ventas fantasma por canal**")
             por_canal = df[df["SKU_Fantasma"]]["Canal_Venta"].value_counts()
             st.bar_chart(por_canal)
+            if not por_canal.empty:
+                canal_top = por_canal.index[0]
     with c2:
         if "Ciudad_Destino" in df.columns:
             st.markdown("**Ventas fantasma por ciudad**")
             por_ciudad = df[df["SKU_Fantasma"]]["Ciudad_Destino"].value_counts()
             st.bar_chart(por_ciudad)
+            if not por_ciudad.empty:
+                ciudad_top = por_ciudad.index[0]
+
+    if canal_top is not None:
+        st.markdown(
+            f"De las gráficas anteriores observamos que el canal **{canal_top}** concentra la "
+            f"mayor cantidad de ventas fantasma"
+            + (f", y **{ciudad_top}** la mayor cantidad por ciudad" if ciudad_top else "")
+            + ". Esto apunta a que el problema no está distribuido al azar en todo el negocio, "
+            "sino asociado a un punto específico del proceso de venta — probablemente ahí es "
+            "donde vale la pena revisar primero si el catálogo de productos está desactualizado."
+        )
 
     with st.expander(f"Ver los {n_fantasma:,} registros de venta fantasma"):
         cols_mostrar = [c for c in [

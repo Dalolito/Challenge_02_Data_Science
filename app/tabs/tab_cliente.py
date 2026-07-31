@@ -64,6 +64,16 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
         st.markdown("**NPS promedio por categoría**")
         st.bar_chart(resumen.set_index("Categoria")["NPS_Promedio"])
 
+    categoria_mas_stock = resumen.loc[resumen["Stock_Promedio"].idxmax(), "Categoria"]
+    categoria_peor_nps = resumen.loc[resumen["NPS_Promedio"].idxmin(), "Categoria"]
+    st.markdown(
+        f"De las gráficas anteriores observamos que **{categoria_mas_stock}** es la categoría "
+        f"con más stock disponible, mientras que **{categoria_peor_nps}** es la que peor NPS "
+        "reporta. Cuando ambas coinciden en la misma categoría, es una señal de que el problema "
+        "no es de disponibilidad — hay producto de sobra — sino de algo que el cliente está "
+        "percibiendo mal (calidad o precio)."
+    )
+
     st.markdown("**Cruce Stock vs NPS vs Rating de producto**")
     st.dataframe(
         resumen.sort_values("Paradoja", ascending=False),
@@ -72,15 +82,26 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
 
     categorias_paradoja = resumen[resumen["Paradoja"]]["Categoria"].tolist()
     if categorias_paradoja:
-        st.warning(
-            f"⚠️ **Categorías en paradoja (stock alto + NPS bajo):** "
-            f"{', '.join(categorias_paradoja)}. "
-            "Compara su Rating_Producto_Promedio en la tabla: si también es bajo, "
-            "apunta a un problema de calidad de producto; si el rating es aceptable "
-            "pero el NPS es bajo, puede ser un tema de precio/sobrecosto percibido."
+        detalles = []
+        for cat in categorias_paradoja:
+            fila = resumen[resumen["Categoria"] == cat].iloc[0]
+            rating = fila["Rating_Producto_Promedio"]
+            if pd.notna(rating) and rating < 3.5:
+                diagnostico = "su Rating_Producto_Promedio también es bajo, lo que apunta a un problema de calidad de producto"
+            else:
+                diagnostico = "su Rating_Producto_Promedio es aceptable pero el NPS sigue bajo, lo que apunta más a un tema de precio o sobrecosto percibido"
+            detalles.append(f"**{cat}** ({diagnostico})")
+
+        st.markdown(
+            f"De la tabla anterior observamos que {', '.join(detalles)}. "
+            "Es la categoría que la empresa debería revisar primero para entender por qué, "
+            "teniendo suficiente inventario, no está logrando la satisfacción del cliente."
         )
     else:
-        st.success("No se detectaron categorías en la zona de paradoja (stock alto + NPS bajo).")
+        st.markdown(
+            "De la tabla anterior observamos que ninguna categoría combina stock alto con NPS "
+            "bajo — no hay evidencia de la paradoja stock/sentimiento en el filtro actual."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +148,19 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
         st.markdown("**Tasa de tickets de soporte (%), por bodega**")
         st.bar_chart(resumen.set_index("Bodega_Origen")["Tasa_Ticket_Soporte"])
 
+    bodega_mas_rezagada = resumen.iloc[0]["Bodega_Origen"]
+    bodega_mas_tickets = resumen.loc[resumen["Tasa_Ticket_Soporte"].idxmax(), "Bodega_Origen"]
+    st.markdown(
+        f"De las gráficas anteriores observamos que **{bodega_mas_rezagada}** es la bodega que "
+        f"más tiempo lleva sin revisar su inventario, y **{bodega_mas_tickets}** es la que más "
+        "tickets de soporte genera" +
+        (" — son la misma bodega, lo cual refuerza la hipótesis de que operar sin auditar el "
+         "stock se traduce directamente en más problemas para el cliente."
+         if bodega_mas_rezagada == bodega_mas_tickets else
+         " — no son la misma bodega, así que conviene revisar la correlación real antes de "
+         "asumir una relación causal entre ambas cosas.")
+    )
+
     st.markdown("**Tabla comparativa**")
     st.dataframe(resumen, width="stretch", hide_index=True)
 
@@ -135,16 +169,18 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
 
     if pd.notna(correlacion) and correlacion > 0.3:
         bodega_critica = resumen.iloc[0]["Bodega_Origen"]
-        st.error(
-            f"🚨 La correlación es positiva y notable: a más tiempo sin revisar stock, "
-            f"más tickets de soporte. **{bodega_critica}** es la bodega más rezagada en "
-            "revisión — es la que más urge auditar primero."
+        st.markdown(
+            f"De la tabla anterior observamos que la correlación es positiva y notable "
+            f"({correlacion:.2f}): a más tiempo sin revisar stock, más tickets de soporte. "
+            f"**{bodega_critica}** es la bodega más rezagada en revisión — es la que más urge "
+            "auditar primero, antes de que siga generando más costo oculto en soporte al cliente."
         )
     else:
-        st.info(
-            "La correlación entre antigüedad de revisión y tickets de soporte es débil "
-            "en el filtro actual — no parece ser el principal factor explicativo de los "
-            "tickets de soporte."
+        st.markdown(
+            f"De la tabla anterior observamos que la correlación entre antigüedad de revisión y "
+            f"tickets de soporte es débil ({correlacion:.2f}) en el filtro actual — la falta de "
+            "revisión de inventario no parece ser, por sí sola, el principal factor detrás de los "
+            "tickets de soporte; vale la pena buscar la causa en otro lado."
         )
 
 
