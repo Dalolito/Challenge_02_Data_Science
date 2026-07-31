@@ -318,70 +318,232 @@ def _render_hallazgos(h: dict):
 
 def _render_plan_de_accion(h: dict):
     st.subheader("4. Plan de Acción Recomendado")
-    st.caption("Tres recomendaciones tácticas, priorizadas por complejidad de implementación.")
+    st.caption(
+        "Una recomendación por cada pregunta estratégica, con objetivo, pasos concretos, "
+        "responsable sugerido, plazo e impacto esperado — no solo el titular del hallazgo."
+    )
 
     recomendaciones = []
 
+    # --- Recomendación ligada a la Pregunta 1 (márgenes) ---
     if h.get("n_margen_negativo", 0) > 0:
+        canal_txt = f", concentrada en el canal **{h['canal_peor_margen']}**" if "canal_peor_margen" in h else ""
         recomendaciones.append({
-            "titulo": "Revisar precios de los SKU con margen negativo",
+            "pregunta": "Pregunta 1 — Rentabilidad",
+            "titulo": "Corregir precios y descatalogar SKU con margen negativo estructural",
             "complejidad": "Baja",
-            "detalle": (
-                f"Ajustar o descatalogar los SKU identificados en la Pregunta 1 "
-                f"({h['n_margen_negativo']:,} ventas afectadas, "
-                f"${abs(h.get('perdida_total', 0)):,.0f} USD en pérdida acumulada"
-                + (f", concentrada en el canal {h['canal_peor_margen']}" if "canal_peor_margen" in h else "")
-                + "). Es un ajuste de precio o de catálogo, no requiere desarrollo técnico ni "
-                "cambios de proceso — se puede ejecutar en días."
+            "plazo": "1–2 semanas",
+            "responsable": "Gerencia Comercial / Pricing",
+            "impacto_esperado": f"Recuperar hasta ${abs(h.get('perdida_total', 0)):,.0f} USD/periodo "
+                                 "si se corrige el precio de los SKU identificados.",
+            "objetivo": (
+                f"{h['n_margen_negativo']:,} ventas ({h['pct_margen_negativo']:.1f}%) se están "
+                f"haciendo con margen negativo{canal_txt}. El objetivo es detener la sangría "
+                "antes de que el próximo cierre financiero la refleje."
             ),
+            "pasos": [
+                "Exportar la tabla de SKU con margen negativo desde la pestaña Operaciones (botón de descarga).",
+                "Clasificar cada SKU en 2 grupos: error de precio (corregible) vs. producto sin viabilidad comercial (descatalogar).",
+                "Ajustar el precio de venta o el costo de proveedor de los SKU corregibles en el sistema de origen.",
+                "Retirar del catálogo activo los productos sin viabilidad, evitando seguir generando pérdida por volumen.",
+                "Monitorear el % de ventas con margen negativo en el dashboard la semana siguiente al cambio.",
+            ],
+        })
+    else:
+        recomendaciones.append({
+            "pregunta": "Pregunta 1 — Rentabilidad",
+            "titulo": "Mantener monitoreo preventivo de márgenes por SKU",
+            "complejidad": "Baja",
+            "plazo": "Continuo",
+            "responsable": "Gerencia Comercial / Pricing",
+            "impacto_esperado": "Detección temprana de futuros SKU con margen negativo antes de que escalen.",
+            "objetivo": "No se detectaron ventas con margen negativo en el filtro actual, pero la "
+                        "condición de mercado puede cambiar con el tiempo (costos de proveedor, "
+                        "descuentos por canal).",
+            "pasos": [
+                "Revisar la pestaña Operaciones mensualmente, no solo cuando haya una alerta.",
+                "Fijar un umbral de alerta (ej. margen < 5%) para intervenir antes de que un SKU caiga a negativo.",
+            ],
         })
 
+    # --- Recomendación ligada a la Pregunta 2 (logística) ---
+    corr_log = h.get("correlacion_logistica")
+    if "ciudad_logistica_critica" in h and pd.notna(corr_log) and abs(corr_log) >= 0.3:
+        recomendaciones.append({
+            "pregunta": "Pregunta 2 — Logística",
+            "titulo": f"Renegociar o cambiar el operador logístico en {h['ciudad_logistica_critica']}",
+            "complejidad": "Alta",
+            "plazo": "1–2 meses",
+            "responsable": "Gerencia de Operaciones / Logística",
+            "impacto_esperado": "Mejora esperada en NPS de la zona proporcional a la reducción del "
+                                 "tiempo de entrega; a validar con una prueba piloto antes del cambio definitivo.",
+            "objetivo": (
+                f"{h['ciudad_logistica_critica']} muestra la correlación más negativa "
+                f"({corr_log:.2f}) entre tiempo de entrega y NPS del país — es la zona donde "
+                "la logística está costando clientes de forma medible."
+            ),
+            "pasos": [
+                f"Auditar los SLA actuales del operador logístico que cubre {h['ciudad_logistica_critica']}.",
+                "Solicitar cotización y SLA de al menos 2 operadores alternativos en la zona.",
+                "Ejecutar una prueba piloto (ej. 4-6 semanas) con el operador alternativo en un subconjunto de envíos.",
+                "Comparar NPS y tiempo de entrega del piloto contra el operador actual antes de decidir el cambio definitivo.",
+            ],
+        })
+    else:
+        recomendaciones.append({
+            "pregunta": "Pregunta 2 — Logística",
+            "titulo": "Investigar causas de insatisfacción distintas a la logística",
+            "complejidad": "Media",
+            "plazo": "3–4 semanas",
+            "responsable": "Gerencia de Experiencia al Cliente",
+            "impacto_esperado": "Identificar el verdadero motor del NPS bajo, evitando invertir en "
+                                 "un cambio de operador que no resolvería el problema real.",
+            "objetivo": (
+                "La relación entre tiempo de entrega y NPS es débil incluso en la ciudad más "
+                "afectada" + (f" (**{h['ciudad_logistica_critica']}**, {corr_log:.2f})" if "ciudad_logistica_critica" in h else "")
+                + ", lo que sugiere que el problema de satisfacción del cliente no está "
+                "principalmente en la logística."
+            ),
+            "pasos": [
+                "Cruzar el NPS bajo contra Rating_Producto y Comentario_Texto para identificar el patrón real.",
+                "Revisar si la insatisfacción se concentra en categorías específicas (ver Pregunta 4).",
+                "Diseñar una encuesta corta de seguimiento a clientes con NPS bajo para confirmar la causa raíz antes de invertir en logística.",
+            ],
+        })
+
+    # --- Recomendación ligada a la Pregunta 3 (SKU fantasma) ---
     if h.get("n_fantasma", 0) > 0:
         recomendaciones.append({
-            "titulo": "Auditar y sincronizar el catálogo de inventario",
+            "pregunta": "Pregunta 3 — Venta invisible",
+            "titulo": "Auditar y sincronizar el catálogo de inventario con el sistema de ventas",
             "complejidad": "Media",
-            "detalle": (
-                f"Investigar el origen de los {h['n_fantasma']:,} SKU vendidos sin registro en "
-                f"inventario (${h.get('ingreso_riesgo', 0):,.0f} USD en riesgo, identificados "
-                "en la Pregunta 3). Requiere coordinación entre el equipo de ventas y el de "
-                "inventario para decidir, producto por producto, si son altas pendientes de "
-                "catalogar o errores de digitación — no es solo un ajuste de sistema."
+            "plazo": "3–6 semanas",
+            "responsable": "Gerencia de Inventario / TI",
+            "impacto_esperado": f"Recuperar visibilidad y control sobre ${h.get('ingreso_riesgo', 0):,.0f} "
+                                 f"USD ({h.get('pct_ingreso_riesgo', 0):.1f}% del ingreso total) actualmente "
+                                 "sin trazabilidad de costo ni margen.",
+            "objetivo": (
+                f"{h['n_fantasma']:,} ventas ({h['pct_fantasma']:.1f}%) corresponden a SKU que "
+                "no existen en el inventario oficial — la empresa no puede calcular su costo "
+                "ni margen real, y no sabe si son ventas legítimas, errores de digitación o "
+                "un síntoma de fraude."
             ),
+            "pasos": [
+                "Exportar la tabla de ventas fantasma desde la pestaña Operaciones.",
+                "Agrupar por SKU y volumen para priorizar la investigación de los que más ingreso representan.",
+                "Coordinar con el equipo de ventas y proveedores para determinar si son productos nuevos pendientes de catalogar.",
+                "Registrar en el ERP los SKU legítimos; escalar a auditoría interna los que no tengan justificación.",
+                "Implementar una validación automática que bloquee o marque ventas de SKU no catalogados a futuro.",
+            ],
+        })
+    else:
+        recomendaciones.append({
+            "pregunta": "Pregunta 3 — Venta invisible",
+            "titulo": "Mantener el control de integridad SKU-inventario",
+            "complejidad": "Baja",
+            "plazo": "Continuo",
+            "responsable": "Gerencia de Inventario / TI",
+            "impacto_esperado": "Prevenir la reaparición de ventas sin respaldo de inventario.",
+            "objetivo": "No se detectaron ventas fantasma en el filtro actual — mantener el control implementado.",
+            "pasos": [
+                "Conservar la validación de integridad SKU-inventario en el pipeline de datos.",
+                "Revisar periódicamente que ningún nuevo canal de venta esté generando SKU fuera de catálogo.",
+            ],
         })
 
-    if "bodega_critica" in h and pd.notna(h.get("correlacion_logistica_bodega")) and h["correlacion_logistica_bodega"] > 0.3:
+    # --- Recomendación ligada a la Pregunta 4 (paradoja stock/NPS) ---
+    if "categorias_paradoja" in h:
+        rating = h.get("rating_categoria_paradoja")
+        if pd.notna(rating) and rating < 3.5:
+            enfoque = "una revisión de calidad de producto (retrabajo con el proveedor, control de calidad de entrada, o reemplazo de línea)"
+        else:
+            enfoque = "una revisión de estrategia de precio (el producto es percibido como caro para el valor que entrega)"
         recomendaciones.append({
+            "pregunta": "Pregunta 4 — Fidelidad",
+            "titulo": f"Intervenir la categoría {', '.join(h['categorias_paradoja'])}: {enfoque.split('(')[0].strip()}",
+            "complejidad": "Media",
+            "plazo": "1–3 meses",
+            "responsable": "Gerencia de Producto / Categoría",
+            "impacto_esperado": "Mejora del NPS de la categoría sin necesidad de reducir el inventario "
+                                 "disponible, evitando quiebres de stock innecesarios.",
+            "objetivo": (
+                f"**{', '.join(h['categorias_paradoja'])}** combina alto stock disponible con "
+                "bajo NPS — el problema no es de disponibilidad, es de percepción o calidad "
+                f"del producto. Se recomienda {enfoque}."
+            ),
+            "pasos": [
+                "Leer una muestra de Comentario_Texto de clientes con NPS bajo en esta categoría para identificar el motivo recurrente.",
+                "Si es calidad: auditar con el proveedor los lotes recientes y reforzar el control de calidad de entrada.",
+                "Si es precio: comparar contra la competencia y evaluar una promoción o ajuste de precio dirigido.",
+                "Volver a medir NPS de la categoría 60-90 días después de la intervención.",
+            ],
+        })
+    else:
+        recomendaciones.append({
+            "pregunta": "Pregunta 4 — Fidelidad",
+            "titulo": "Mantener monitoreo de la relación stock/satisfacción por categoría",
+            "complejidad": "Baja",
+            "plazo": "Continuo",
+            "responsable": "Gerencia de Producto / Categoría",
+            "impacto_esperado": "Detección temprana de nuevas paradojas stock/NPS antes de que impacten la fidelidad.",
+            "objetivo": "No se detectó ninguna categoría en paradoja en el filtro actual.",
+            "pasos": [
+                "Revisar la pestaña Cliente trimestralmente para detectar cambios en el patrón.",
+            ],
+        })
+
+    # --- Recomendación ligada a la Pregunta 5 (riesgo operativo / bodegas) ---
+    corr_bod = h.get("correlacion_logistica_bodega")
+    if "bodega_critica" in h and pd.notna(corr_bod) and corr_bod > 0.3:
+        recomendaciones.append({
+            "pregunta": "Pregunta 5 — Riesgo Operativo",
             "titulo": f"Implementar auditorías periódicas de stock en {h['bodega_critica']}",
             "complejidad": "Alta",
-            "detalle": (
-                "Establecer un proceso recurrente de revisión de inventario (ej. mensual) en "
-                "la bodega identificada en la Pregunta 5, con responsables y métricas de "
-                "seguimiento. Es un cambio de proceso operativo que requiere gestión de "
-                "personas y tiempo para consolidarse, no solo una corrección puntual."
+            "plazo": "2–3 meses para implementar, luego recurrente",
+            "responsable": "Gerencia de Operaciones / Bodega",
+            "impacto_esperado": f"Reducir la tasa de tickets de soporte desde el "
+                                 f"{h.get('bodega_critica_tasa_ticket', 0):.1f}% actual en esa bodega, "
+                                 "acercándola al promedio de las demás.",
+            "objetivo": (
+                f"**{h['bodega_critica']}** muestra una correlación positiva notable "
+                f"({corr_bod:.2f}) entre días sin revisar el inventario y tickets de soporte: "
+                "está operando a ciegas, y eso se traduce en más fricción para el cliente final."
             ),
+            "pasos": [
+                "Definir una frecuencia mínima de revisión de inventario (ej. mensual) para esta bodega.",
+                "Asignar un responsable directo del cumplimiento de esa frecuencia.",
+                "Registrar la fecha de cada revisión en el sistema (evita que Ultima_Revision vuelva a quedar desactualizada).",
+                "Extender el mismo proceso a las demás bodegas si el piloto reduce la tasa de tickets.",
+            ],
         })
-    elif "ciudad_logistica_critica" in h and abs(h.get("correlacion_logistica", 0)) >= 0.3:
+    else:
         recomendaciones.append({
-            "titulo": f"Evaluar cambio de operador logístico en {h['ciudad_logistica_critica']}",
-            "complejidad": "Alta",
-            "detalle": (
-                "Renegociar el SLA o cambiar de proveedor de transporte en la zona "
-                "identificada en la Pregunta 2. Implica costos de transición y validación de "
-                "nuevos proveedores — no es una corrección inmediata."
-            ),
+            "pregunta": "Pregunta 5 — Riesgo Operativo",
+            "titulo": "Mantener la cadencia actual de revisión de inventario",
+            "complejidad": "Baja",
+            "plazo": "Continuo",
+            "responsable": "Gerencia de Operaciones / Bodega",
+            "impacto_esperado": "Prevenir que alguna bodega empiece a rezagarse en sus revisiones.",
+            "objetivo": "No se encontró una correlación fuerte entre antigüedad de revisión y "
+                        "tickets de soporte en el filtro actual.",
+            "pasos": [
+                "Mantener el registro de Ultima_Revision actualizado en todas las bodegas.",
+                "Revisar este indicador junto con el resto del plan de acción cada trimestre.",
+            ],
         })
-
-    if not recomendaciones:
-        st.info("No hay suficientes hallazgos en el filtro actual para generar un plan de acción.")
-        return
 
     color_por_complejidad = {"Baja": "🟢", "Media": "🟡", "Alta": "🔴"}
     for i, rec in enumerate(recomendaciones, start=1):
         with st.expander(
             f"{i}. {rec['titulo']}  —  {color_por_complejidad[rec['complejidad']]} "
-            f"Complejidad {rec['complejidad']}"
+            f"Complejidad {rec['complejidad']}  ·  {rec['pregunta']}"
         ):
-            st.write(rec["detalle"])
+            st.markdown(f"**Objetivo:** {rec['objetivo']}")
+            st.markdown(f"**Responsable sugerido:** {rec['responsable']}  |  **Plazo:** {rec['plazo']}")
+            st.markdown(f"**Impacto esperado:** {rec['impacto_esperado']}")
+            st.markdown("**Pasos concretos:**")
+            for paso in rec["pasos"]:
+                st.markdown(f"- {paso}")
 
 
 # ---------------------------------------------------------------------------
