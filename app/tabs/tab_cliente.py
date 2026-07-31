@@ -1,105 +1,164 @@
 """
-ai_insights.py
----------------
-Integración con Groq (modelo Llama-3) para generar recomendaciones
-estratégicas en tiempo real a partir del resumen estadístico de los
-datos filtrados por el usuario (Fase 3 del challenge).
+tab_cliente.py
+----------------
+Pestaña "Cliente": responde las Preguntas 4 y 5 del reto.
 
-La API key se lee desde st.secrets["GROQ_API_KEY"], nunca hardcodeada.
+4. Diagnóstico de Fidelidad — categorías con alta disponibilidad (stock alto)
+   pero sentimiento de cliente negativo (¿mala calidad o sobrecosto?).
+5. Storytelling de Riesgo Operativo — relación entre antigüedad de la última
+   revisión de stock y la tasa de tickets de soporte, por bodega.
+
+Recibe el DataFrame maestro YA FILTRADO por el sidebar. Solo lee columnas
+que ya vienen calculadas por feature_engineering.py / cleaning.py.
 """
 
 import pandas as pd
+import streamlit as st
 
 
-def build_summary_stats(df: pd.DataFrame) -> dict:
-    """
-    Resume el DataFrame filtrado a un diccionario compacto de estadísticos,
-    para no mandarle el dataset completo al modelo (caro y lento) — solo
-    los números que ya calculó el dashboard.
-    """
-    if df is None or df.empty:
-        return {"n_transacciones": 0}
+# ---------------------------------------------------------------------------
+# Pregunta 4 — Paradoja stock alto / sentimiento negativo
+# ---------------------------------------------------------------------------
 
-    summary = {"n_transacciones": len(df)}
-
-    if "Margen_Utilidad" in df.columns:
-        df_margen = df[df["Margen_Utilidad"].notna()]
-        summary["margen_promedio_usd"] = round(df_margen["Margen_Utilidad"].mean(), 2) if not df_margen.empty else None
-        summary["pct_ventas_margen_negativo"] = round(
-            100 * (df_margen["Margen_Utilidad"] < 0).mean(), 1
-        ) if not df_margen.empty else None
-
-    if "SKU_Fantasma" in df.columns:
-        summary["pct_ventas_sku_fantasma"] = round(100 * df["SKU_Fantasma"].mean(), 1)
-        if "Precio_Venta_Final" in df.columns and df["Precio_Venta_Final"].sum() > 0:
-            ingreso_fantasma = df.loc[df["SKU_Fantasma"], "Precio_Venta_Final"].sum()
-            summary["ingreso_en_riesgo_usd"] = round(ingreso_fantasma, 2)
-            summary["pct_ingreso_en_riesgo"] = round(
-                100 * ingreso_fantasma / df["Precio_Venta_Final"].sum(), 1
-            )
-
-    if "Satisfaccion_NPS" in df.columns:
-        summary["nps_promedio"] = round(df["Satisfaccion_NPS"].mean(), 1)
-
-    if "Tiempo_Entrega_Real" in df.columns:
-        summary["tiempo_entrega_promedio_dias"] = round(df["Tiempo_Entrega_Real"].mean(), 1)
-
-    if "Ticket_Soporte_Abierto" in df.columns:
-        summary["tasa_tickets_soporte_pct"] = round(100 * df["Ticket_Soporte_Abierto"].mean(), 1)
-
-    if "Categoria" in df.columns:
-        top_categoria = df["Categoria"].value_counts()
-        if not top_categoria.empty:
-            summary["categoria_mas_vendida"] = top_categoria.index[0]
-
-    if "Ciudad_Destino" in df.columns:
-        top_ciudad = df["Ciudad_Destino"].value_counts()
-        if not top_ciudad.empty:
-            summary["ciudad_con_mas_ventas"] = top_ciudad.index[0]
-
-    return summary
-
-
-def build_prompt(summary_stats: dict) -> str:
-    """Arma el prompt en español para el modelo, a partir del resumen estadístico."""
-    lineas = [f"- {clave}: {valor}" for clave, valor in summary_stats.items()]
-    resumen_texto = "\n".join(lineas)
-
-    return f"""Eres un consultor senior de datos analizando TechLogistics S.A.S.,
-una empresa de retail tecnológico con problemas de rentabilidad y satisfacción
-de clientes. A continuación tienes el resumen estadístico de las transacciones
-actualmente filtradas en el dashboard:
-
-{resumen_texto}
-
-Con base ÚNICAMENTE en estos datos (no inventes cifras que no aparezcan arriba),
-escribe exactamente 3 párrafos cortos de recomendación estratégica para la junta
-directiva:
-
-1. Diagnóstico: qué es lo más preocupante de estos números.
-2. Causa probable: por qué podría estar pasando esto.
-3. Recomendación accionable: qué debería hacer la empresa primero.
-
-Sé directo, cuantitativo (usa las cifras dadas) y evita generalidades vacías."""
-
-
-def get_ai_recommendation(summary_stats: dict, api_key: str) -> str:
-    """
-    Llama a Groq (Llama-3) con el resumen estadístico y devuelve el texto
-    de recomendación. Lanza excepción si falla — la tab decide cómo mostrarlo.
-    """
-    from groq import Groq
-
-    if summary_stats.get("n_transacciones", 0) == 0:
-        return "No hay transacciones en el filtro actual para analizar."
-
-    client = Groq(api_key=api_key)
-    prompt = build_prompt(summary_stats)
-
-    respuesta = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.4,
-        max_tokens=600,
+def _seccion_paradoja_stock(df: pd.DataFrame):
+    st.subheader("4. Diagnóstico de Fidelidad — Paradoja Stock Alto / Sentimiento Negativo")
+    st.caption(
+        "¿Hay categorías con mucho stock disponible pero mala percepción del cliente? "
+        "Eso apunta a un problema de calidad de producto, no de disponibilidad."
     )
-    return respuesta.choices[0].message.content
+
+    cols_necesarias = {"Categoria", "Stock_Actual", "Satisfaccion_NPS"}
+    if not cols_necesarias.issubset(df.columns):
+        st.warning("Faltan columnas necesarias para este análisis.")
+        return
+
+    df_validos = df.dropna(subset=["Categoria", "Stock_Actual", "Satisfaccion_NPS"])
+    if df_validos.empty:
+        st.warning("No hay datos suficientes en el filtro actual.")
+        return
+
+    resumen = (
+        df_validos.groupby("Categoria")
+        .agg(
+            Stock_Promedio=("Stock_Actual", "mean"),
+            NPS_Promedio=("Satisfaccion_NPS", "mean"),
+            Rating_Producto_Promedio=("Rating_Producto", "mean"),
+            Ratio_Soporte=("Ratio_Soporte_Categoria", "first"),
+            N_Ventas=("Transaccion_ID", "count"),
+        )
+        .reset_index()
+    )
+
+    # Umbral: por encima de la mediana de stock y por debajo de la mediana de NPS
+    stock_mediana = resumen["Stock_Promedio"].median()
+    nps_mediana = resumen["NPS_Promedio"].median()
+    resumen["Paradoja"] = (
+        (resumen["Stock_Promedio"] > stock_mediana) & (resumen["NPS_Promedio"] < nps_mediana)
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Stock promedio por categoría**")
+        st.bar_chart(resumen.set_index("Categoria")["Stock_Promedio"])
+    with c2:
+        st.markdown("**NPS promedio por categoría**")
+        st.bar_chart(resumen.set_index("Categoria")["NPS_Promedio"])
+
+    st.markdown("**Cruce Stock vs NPS vs Rating de producto**")
+    st.dataframe(
+        resumen.sort_values("Paradoja", ascending=False),
+        width="stretch", hide_index=True,
+    )
+
+    categorias_paradoja = resumen[resumen["Paradoja"]]["Categoria"].tolist()
+    if categorias_paradoja:
+        st.warning(
+            f"⚠️ **Categorías en paradoja (stock alto + NPS bajo):** "
+            f"{', '.join(categorias_paradoja)}. "
+            "Compara su Rating_Producto_Promedio en la tabla: si también es bajo, "
+            "apunta a un problema de calidad de producto; si el rating es aceptable "
+            "pero el NPS es bajo, puede ser un tema de precio/sobrecosto percibido."
+        )
+    else:
+        st.success("No se detectaron categorías en la zona de paradoja (stock alto + NPS bajo).")
+
+
+# ---------------------------------------------------------------------------
+# Pregunta 5 — Antigüedad de revisión de stock vs tickets de soporte
+# ---------------------------------------------------------------------------
+
+def _seccion_riesgo_operativo(df: pd.DataFrame):
+    st.subheader("5. Storytelling de Riesgo Operativo")
+    st.caption(
+        "¿Las bodegas que llevan más tiempo sin revisar su inventario tienen más "
+        "tickets de soporte? Eso indicaría que están 'operando a ciegas'."
+    )
+
+    cols_necesarias = {"Bodega_Origen", "Ultima_Revision", "Ticket_Soporte_Abierto"}
+    if not cols_necesarias.issubset(df.columns):
+        st.warning("Faltan columnas necesarias para este análisis.")
+        return
+
+    df_validos = df.dropna(subset=["Bodega_Origen", "Ultima_Revision"]).copy()
+    if df_validos.empty:
+        st.warning("No hay datos suficientes en el filtro actual.")
+        return
+
+    fecha_referencia = df_validos["Ultima_Revision"].max()
+    df_validos["Dias_Sin_Revision"] = (fecha_referencia - df_validos["Ultima_Revision"]).dt.days
+
+    resumen = (
+        df_validos.groupby("Bodega_Origen")
+        .agg(
+            Dias_Sin_Revision_Promedio=("Dias_Sin_Revision", "mean"),
+            Tasa_Ticket_Soporte=("Ticket_Soporte_Abierto", "mean"),
+            N_Transacciones=("Transaccion_ID", "count"),
+        )
+        .reset_index()
+    )
+    resumen["Tasa_Ticket_Soporte"] = (resumen["Tasa_Ticket_Soporte"] * 100).round(1)
+    resumen = resumen.sort_values("Dias_Sin_Revision_Promedio", ascending=False)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Días promedio sin revisión de stock, por bodega**")
+        st.bar_chart(resumen.set_index("Bodega_Origen")["Dias_Sin_Revision_Promedio"])
+    with c2:
+        st.markdown("**Tasa de tickets de soporte (%), por bodega**")
+        st.bar_chart(resumen.set_index("Bodega_Origen")["Tasa_Ticket_Soporte"])
+
+    st.markdown("**Tabla comparativa**")
+    st.dataframe(resumen, width="stretch", hide_index=True)
+
+    correlacion = resumen["Dias_Sin_Revision_Promedio"].corr(resumen["Tasa_Ticket_Soporte"])
+    st.metric("Correlación (días sin revisión ↔ tasa de tickets)", f"{correlacion:.2f}")
+
+    if pd.notna(correlacion) and correlacion > 0.3:
+        bodega_critica = resumen.iloc[0]["Bodega_Origen"]
+        st.error(
+            f"🚨 La correlación es positiva y notable: a más tiempo sin revisar stock, "
+            f"más tickets de soporte. **{bodega_critica}** es la bodega más rezagada en "
+            "revisión — es la que más urge auditar primero."
+        )
+    else:
+        st.info(
+            "La correlación entre antigüedad de revisión y tickets de soporte es débil "
+            "en el filtro actual — no parece ser el principal factor explicativo de los "
+            "tickets de soporte."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Render principal
+# ---------------------------------------------------------------------------
+
+def render(df_filtrado: pd.DataFrame):
+    st.header("😊 Cliente")
+
+    if df_filtrado is None or df_filtrado.empty:
+        st.warning("No hay datos para mostrar con los filtros actuales. Ajusta el sidebar.")
+        return
+
+    _seccion_paradoja_stock(df_filtrado)
+    st.divider()
+    _seccion_riesgo_operativo(df_filtrado)
