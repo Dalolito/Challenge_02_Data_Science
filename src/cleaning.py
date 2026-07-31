@@ -6,9 +6,12 @@ Transforma los DataFrames crudos cargados por data_loader.py en datos
 listos para análisis, generando un reporte de trazabilidad con cada
 decisión aplicada.
 
-v2 — Corrige 4 bugs detectados al auditar la v1 contra los datos reales
-(ver docs/auditoria_cleaning_v1.md para el detalle de cada bug) y cubre
-2 casos que la v1 no trataba (SKU fantasma, Estado_Envio nulo).
+v3 — El reporte de cada cambio ahora tiene 3 campos separados en vez de
+un solo párrafo, para que la pestaña de Auditoría lo muestre como una
+historia clara:
+  - identificacion: cómo se detectó el problema y qué tan grande era
+  - decision: qué técnica se aplicó, en concreto
+  - justificacion: por qué esa técnica y no otra (qué se buscó preservar)
 """
 
 import re
@@ -17,9 +20,8 @@ import pandas as pd
 
 
 # ---------------------------------------------------------------------------
-# Diccionarios de normalización (todas las keys en minúscula: se compara
-# siempre con el valor ya pasado por .lower().strip(), así "SI", "Si" y
-# "si" matchean igual — este era el Bug #4 de la v1).
+# Diccionarios de normalización (keys en minúscula: comparación siempre
+# contra el valor ya pasado por .lower().strip())
 # ---------------------------------------------------------------------------
 
 CIUDAD_MAP = {
@@ -30,30 +32,22 @@ CIUDAD_MAP = {
     "cart": "Cartagena", "cartagena": "Cartagena",
     "bucaramanga": "Bucaramanga",
 }
-CIUDADES_VALIDAS = set(CIUDAD_MAP.values())
 
 CANAL_MAP = {
-    "online": "Online",
-    "físico": "Físico", "fisico": "Físico",
-    "whatsapp": "WhatsApp",
-    "app": "App",
+    "online": "Online", "físico": "Físico", "fisico": "Físico",
+    "whatsapp": "WhatsApp", "app": "App",
 }
 
 ESTADO_ENVIO_MAP = {
-    "entregado": "Entregado",
-    "perdido": "Perdido",
+    "entregado": "Entregado", "perdido": "Perdido",
     "en tránsito": "En tránsito", "en transito": "En tránsito",
     "devuelto": "Devuelto",
 }
 
-TICKET_MAP = {
-    "sí": 1, "si": 1, "s": 1, "1": 1,
-    "no": 0, "n": 0, "0": 0,
-}
+TICKET_MAP = {"sí": 1, "si": 1, "s": 1, "1": 1, "no": 0, "n": 0, "0": 0}
 
 RECOMIENDA_MAP = {
-    "sí": "Sí", "si": "Sí", "s": "Sí",
-    "no": "No", "n": "No",
+    "sí": "Sí", "si": "Sí", "s": "Sí", "no": "No", "n": "No",
     "maybe": "Maybe", "tal vez": "Maybe",
 }
 
@@ -67,28 +61,35 @@ CATEGORIA_MAP = {
 
 
 # ---------------------------------------------------------------------------
+# Helper para construir cada entrada del reporte con el mismo formato
+# ---------------------------------------------------------------------------
+
+def _registrar_cambio(report: dict, columna: str, identificacion: str, decision: str, justificacion: str):
+    """Agrega un cambio al reporte en el formato narrativo de 3 partes."""
+    report["cambios"].append({
+        "columna": columna,
+        "identificacion": identificacion,
+        "decision": decision,
+        "justificacion": justificacion,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Helpers de parseo / normalización por celda
 # ---------------------------------------------------------------------------
 
 def _parse_lead_time(val):
-    """
-    BUG FIX (v1 -> v2): la v1 no reconocía 'Inmediato' y lo dejaba como NaN,
-    borrando 433 registros válidos. 'Inmediato' significa 0 días de espera.
-    """
     if pd.isna(val):
         return np.nan
     if isinstance(val, (int, float)):
         return float(val)
-
     val = str(val).strip().lower()
     if val == "inmediato":
         return 0.0
-
     val = val.replace("días", "").replace("dias", "").replace("dãas", "").strip()
     match = re.match(r"(\d+)\s*[-–]\s*(\d+)", val)
     if match:
         return (float(match.group(1)) + float(match.group(2))) / 2
-
     try:
         return float(val)
     except (ValueError, TypeError):
@@ -96,11 +97,6 @@ def _parse_lead_time(val):
 
 
 def _normalize_categoria(val):
-    """
-    BUG FIX (v1 -> v2): la v1 solo hacía .str.title(), que no fusiona
-    singular/plural ni guiones, y convertía '???' en string vacío que
-    isna() no detecta. v2 normaliza a 5 categorías reales y '???' -> NaN.
-    """
     if pd.isna(val):
         return np.nan
     v = str(val).strip()
@@ -111,11 +107,6 @@ def _normalize_categoria(val):
 
 
 def _normalize_ciudad(val):
-    """
-    BUG FIX (v1 -> v2): la v1 no detectaba 'Ventas_Web' como valor inválido
-    (contaminación cruzada con Canal_Venta). v2 lo marca como NaN + flag.
-    Devuelve (valor_normalizado, es_invalido: bool)
-    """
     if pd.isna(val):
         return np.nan, False
     v = str(val).strip().lower()
@@ -125,17 +116,13 @@ def _normalize_ciudad(val):
 
 
 def _cap_iqr(series, factor=1.5):
-    """Winsorizing (capping) basado en rango intercuartílico. No elimina filas."""
     q1 = series.quantile(0.25)
     q3 = series.quantile(0.75)
     iqr = q3 - q1
-    lower = q1 - factor * iqr
-    upper = q3 + factor * iqr
-    return series.clip(lower, upper)
+    return series.clip(q1 - factor * iqr, q3 + factor * iqr)
 
 
 def _impute_median_by_group(series, group_series):
-    """Imputa nulos de `series` con la mediana por grupo definido en `group_series`."""
     medians = series.groupby(group_series).median()
     result = series.fillna(series.map(medians))
     if result.isna().sum() > 0:
@@ -152,79 +139,102 @@ def clean_inventario(df: pd.DataFrame):
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
 
+    # --- Costo_Unitario_USD ---
     if "Costo_Unitario_USD" in df.columns:
         col = "Costo_Unitario_USD"
         df[col] = pd.to_numeric(df[col], errors="coerce")
+        rango_original = f"${df[col].min():,.2f} – ${df[col].max():,.2f}"
         df[col] = _cap_iqr(df[col])
-        report["cambios"].append({
-            "columna": col, "accion": "Winsorizing IQR",
-            "detalle": "Costos extremos (ej. $850,000) limitados al bigote del rango intercuartílico. "
-                       "No se eliminan filas, se acota el valor para no perder el registro del SKU.",
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se revisó el rango de costos y se encontró un rango extremo "
+                            f"({rango_original}), incluyendo valores absurdos para accesorios "
+                            "de bajo costo (ej. $850,000).",
+            decision="Se aplicó Winsorizing (capping) por rango intercuartílico (IQR): "
+                      "los valores fuera del bigote se acotan al límite, no se eliminan.",
+            justificacion="Se eligió acotar en vez de eliminar la fila para no perder el resto "
+                           "del registro del SKU (categoría, stock, bodega siguen siendo datos "
+                           "válidos); eliminar la fila completa habría sido más agresivo de lo "
+                           "necesario para corregir un solo valor.",
+        )
 
+    # --- Lead_Time_Dias: parseo de texto ---
     if "Lead_Time_Dias" in df.columns:
         col = "Lead_Time_Dias"
-        inmediato_count = df[col].astype(str).str.strip().str.lower().eq("inmediato").sum()
-        rango_count = df[col].astype(str).str.contains(r"\d+\s*[-–]\s*\d+", na=False).sum()
-        nulos_genuinos_antes = df[col].isna().sum()
+        inmediato_count = int(df[col].astype(str).str.strip().str.lower().eq("inmediato").sum())
+        rango_count = int(df[col].astype(str).str.contains(r"\d+\s*[-–]\s*\d+", na=False).sum())
+        nulos_genuinos_antes = int(df[col].isna().sum())
         df[col] = df[col].apply(_parse_lead_time)
+        _registrar_cambio(
+            report, col,
+            identificacion=f"La columna mezclaba 3 formatos distintos: {inmediato_count} "
+                            f"valores de texto 'Inmediato', {rango_count} rangos de texto "
+                            f"(ej. '25-30 días'), y {nulos_genuinos_antes} celdas vacías desde "
+                            "el CSV original.",
+            decision="'Inmediato' se convirtió a 0 (es un dato real, no una ausencia de dato). "
+                      "Los rangos se convirtieron al promedio del rango (punto medio).",
+            justificacion="Tratar 'Inmediato' como nulo habría borrado información real de "
+                           "reposición inmediata. Para los rangos, el punto medio es la opción "
+                           "más neutral: no favorece un escenario optimista ni uno conservador.",
+        )
 
-        # Los nulos genuinos (celda vacía desde el CSV, no texto a convertir)
-        # se imputan con la mediana POR CATEGORÍA — se hace después de limpiar
-        # Categoria más abajo, así que aquí solo dejamos constancia de cuántos
-        # quedan pendientes; la imputación real ocurre al final de esta función.
-        report["cambios"].append({
-            "columna": col, "accion": "Parseo de texto a número",
-            "detalle": (
-                f"{inmediato_count} valores 'Inmediato' -> 0 días (dato real, no faltante). "
-                f"{rango_count} rangos tipo '25-30 días' -> promedio del rango (punto medio). "
-                f"{nulos_genuinos_antes} celdas ya venían vacías en el CSV original (no eran "
-                "texto a convertir) — se imputan más abajo, después de normalizar Categoria, "
-                "con la mediana por categoría de producto."
-            ),
-        })
-
+    # --- Stock_Actual ---
     if "Stock_Actual" in df.columns:
         col = "Stock_Actual"
         df[col] = pd.to_numeric(df[col], errors="coerce")
-        negativos = (df[col] < 0).sum()
+        negativos = int((df[col] < 0).sum())
         df.loc[df[col] < 0, col] = np.nan
         mediana = df[col].median()
         df[col] = df[col].fillna(mediana)
-        report["cambios"].append({
-            "columna": col, "accion": "Negativos -> NaN + imputación con mediana",
-            "detalle": (
-                f"{negativos} valores de stock negativo tratados como nulo técnico. "
-                f"Mediana imputada: {mediana:.1f} (robusta frente a la dispersión entre categorías)."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {negativos} registros con stock negativo, algo "
+                            "físicamente imposible en un inventario real.",
+            decision=f"Los valores negativos se trataron como nulo técnico y se imputaron con "
+                     f"la mediana de la columna ({mediana:.1f} unidades).",
+            justificacion="Se usó mediana en vez de media porque Stock_Actual tiene alta "
+                           "dispersión entre categorías de producto (un mouse y un monitor no "
+                           "manejan la misma escala de inventario), y la mediana es más robusta "
+                           "frente a esa asimetría.",
+        )
 
+    # --- Categoria: normalización ---
     if "Categoria" in df.columns:
         col = "Categoria"
         antes_unique = df[col].nunique()
-        signos_interrogacion = (df[col].astype(str).str.strip() == "???").sum()
+        signos_interrogacion = int((df[col].astype(str).str.strip() == "???").sum())
         df[col] = df[col].apply(_normalize_categoria)
         despues_unique = df[col].nunique()
-        report["cambios"].append({
-            "columna": col, "accion": "Normalización de categorías + '???' -> NaN",
-            "detalle": (
-                f"{antes_unique} valores únicos crudos reducidos a {despues_unique} categorías reales "
-                f"(fusiona 'LAPTOP'+'Laptops', 'smart-phone'+'Smartphones'). "
-                f"{signos_interrogacion} registros con '???' convertidos explícitamente a NaN."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se revisaron los valores únicos de Categoria y se encontraron "
+                            f"{antes_unique} valores distintos para lo que en realidad son "
+                            f"{despues_unique} categorías reales (ej. 'LAPTOP' y 'Laptops' eran "
+                            f"la misma categoría con formato distinto). Además, {signos_interrogacion} "
+                            "registros tenían '???' en vez de una categoría real.",
+            decision="Se normalizaron las variantes de mayúscula/minúscula/guion a un único "
+                     "valor canónico por categoría. '???' se convirtió explícitamente a NaN.",
+            justificacion="'???' no es una categoría válida, es un nulo técnico disfrazado de "
+                           "texto — si no se convierte a NaN explícito, queda invisible para "
+                           "cualquier conteo de nulos (isna() no detecta strings como '???').",
+        )
         if "Bodega_Origen" in df.columns:
             moda_por_bodega = df.groupby("Bodega_Origen")[col].agg(
                 lambda s: s.mode().iloc[0] if not s.mode().empty else np.nan
             )
-            nulos_cat = df[col].isna().sum()
+            nulos_cat = int(df[col].isna().sum())
             df[col] = df[col].fillna(df["Bodega_Origen"].map(moda_por_bodega))
             df[col] = df[col].fillna(df[col].mode().iloc[0])
-            report["cambios"].append({
-                "columna": col, "accion": "Imputación de nulos con moda por Bodega_Origen",
-                "detalle": f"{nulos_cat} categorías nulas (ex-'???') imputadas con la categoría más "
-                           "frecuente de su misma bodega de origen.",
-            })
+            _registrar_cambio(
+                report, col,
+                identificacion=f"Tras convertir '???' a NaN, quedaron {nulos_cat} categorías "
+                                "sin valor.",
+                decision="Se imputaron con la categoría más frecuente (moda) dentro de la misma "
+                          "Bodega_Origen del registro.",
+                justificacion="Se asumió que la mezcla de productos tiende a ser similar dentro "
+                               "de una misma bodega, así que la moda local es una mejor "
+                               "aproximación que la moda global de todo el dataset.",
+            )
 
     if "Ultima_Revision" in df.columns:
         df["Ultima_Revision"] = pd.to_datetime(df["Ultima_Revision"], errors="coerce")
@@ -232,24 +242,26 @@ def clean_inventario(df: pd.DataFrame):
     if "Punto_Reorden" in df.columns:
         df["Punto_Reorden"] = pd.to_numeric(df["Punto_Reorden"], errors="coerce")
 
-    # --- Lead_Time_Dias: imputar los nulos genuinos que quedaron tras el parseo ---
-    # Se hace aquí (al final) porque necesita Categoria ya normalizada.
+    # --- Lead_Time_Dias: imputar los nulos genuinos (requiere Categoria ya limpia) ---
     if "Lead_Time_Dias" in df.columns:
         col = "Lead_Time_Dias"
-        nulos_antes_imputar = df[col].isna().sum()
+        nulos_antes_imputar = int(df[col].isna().sum())
         if nulos_antes_imputar > 0:
             if "Categoria" in df.columns:
                 mediana_por_categoria = df.groupby("Categoria")[col].transform("median")
                 df[col] = df[col].fillna(mediana_por_categoria)
-            df[col] = df[col].fillna(df[col].median())  # respaldo si alguna categoría no tenía datos
-            report["cambios"].append({
-                "columna": col, "accion": "Imputación de nulos genuinos con mediana por Categoria",
-                "detalle": (
-                    f"{nulos_antes_imputar} celdas que venían vacías desde el CSV original "
-                    "(no eran texto a convertir, sino ausencia real de dato) imputadas con la "
-                    "mediana de Lead_Time_Dias de su misma categoría de producto."
-                ),
-            })
+            df[col] = df[col].fillna(df[col].median())
+            _registrar_cambio(
+                report, col,
+                identificacion=f"Después de convertir los textos ('Inmediato', rangos), quedaron "
+                                f"{nulos_antes_imputar} celdas que ya venían vacías desde el CSV "
+                                "original (no eran texto a convertir, sino ausencia real de dato).",
+                decision="Se imputaron con la mediana de Lead_Time_Dias de la misma Categoria "
+                          "del producto.",
+                justificacion="Productos de la misma categoría suelen depender de proveedores y "
+                               "cadenas de suministro similares, así que la mediana por categoría "
+                               "es más representativa que una mediana global del inventario.",
+            )
 
     nulos_despues = df.isna().sum().to_dict()
     report["nulos_antes"] = {k: int(v) for k, v in nulos_antes.items()}
@@ -262,56 +274,73 @@ def clean_inventario(df: pd.DataFrame):
 # ---------------------------------------------------------------------------
 
 def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" = None):
-    """
-    inventario_df: DataFrame YA LIMPIO, opcional, para marcar ventas fantasma.
-    """
     report = {"dataset": "transacciones", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
 
+    # --- Cantidad_Vendida ---
     if "Cantidad_Vendida" in df.columns:
         col = "Cantidad_Vendida"
         df[col] = pd.to_numeric(df[col], errors="coerce")
         negativos_mask = df[col] < 0
+        n_negativos = int(negativos_mask.sum())
         df["Cantidad_Corregida"] = negativos_mask
         df[col] = df[col].abs()
-        report["cambios"].append({
-            "columna": col, "accion": "Valor absoluto a negativos + columna de flag",
-            "detalle": (
-                f"{int(negativos_mask.sum())} cantidades negativas convertidas a positivas "
-                "(no hay columna de tipo de transacción que distinga devolución de error). "
-                "Se agrega 'Cantidad_Corregida' (booleano) para trazabilidad en el dashboard."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {n_negativos} registros con cantidad vendida "
+                            "negativa, algo que no tiene sentido en una venta.",
+            decision="Se convirtió el valor a su equivalente positivo (valor absoluto) y se "
+                      "agregó la columna 'Cantidad_Corregida' marcando cuáles filas se tocaron.",
+            justificacion="No existe una columna que distinga una devolución real de un error "
+                           "de captura de signo, así que no se puede saber con certeza cuál es "
+                           "cuál. Se optó por corregir el signo (asumiendo error de captura) pero "
+                           "dejando el flag visible para que el equipo de negocio pueda auditar "
+                           "o excluir estos casos si lo considera necesario.",
+        )
 
     if "Precio_Venta_Final" in df.columns:
         df["Precio_Venta_Final"] = pd.to_numeric(df["Precio_Venta_Final"], errors="coerce")
 
+    # --- Costo_Envio ---
     if "Costo_Envio" in df.columns and "Ciudad_Destino" in df.columns:
         col = "Costo_Envio"
         df[col] = pd.to_numeric(df[col], errors="coerce")
-        nulos_ce = df[col].isna().sum()
+        nulos_ce = int(df[col].isna().sum())
         df[col] = _impute_median_by_group(df[col], df["Ciudad_Destino"])
-        report["cambios"].append({
-            "columna": col, "accion": "Imputación con mediana por ciudad",
-            "detalle": f"{nulos_ce} nulos imputados con la mediana del costo de envío de su "
-                       "misma ciudad destino.",
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {nulos_ce} registros sin costo de envío registrado.",
+            decision="Se imputaron con la mediana del costo de envío de la misma Ciudad_Destino "
+                      "del registro (no una mediana global).",
+            justificacion="El costo de envío varía fuertemente según la distancia/zona; usar la "
+                           "mediana por ciudad da una estimación más ajustada que una mediana "
+                           "única para todo el país.",
+        )
 
+    # --- Tiempo_Entrega_Real ---
     if "Tiempo_Entrega_Real" in df.columns:
         col = "Tiempo_Entrega_Real"
         df[col] = pd.to_numeric(df[col], errors="coerce")
-        outlier_999 = (df[col] == 999).sum()
+        outlier_999 = int((df[col] == 999).sum())
         df.loc[df[col] == 999, col] = np.nan
         mediana_te = df[col].median()
         df[col] = df[col].fillna(mediana_te)
         df[col] = _cap_iqr(df[col])
-        report["cambios"].append({
-            "columna": col, "accion": "Outlier 999 -> NaN + imputación mediana + Winsorizing IQR",
-            "detalle": f"{outlier_999} registros con 999 días (centinela) imputados con la mediana "
-                       f"({mediana_te:.1f} días), luego se acotan otros outliers con IQR.",
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se detectaron {outlier_999} registros con exactamente 999 días de "
+                            "entrega — un patrón repetido tan específico apunta a un valor "
+                            "centinela (código de error), no a una entrega real.",
+            decision=f"Se trataron como nulo y se imputaron con la mediana real de la columna "
+                     f"({mediana_te:.1f} días); luego se acotaron otros outliers menos extremos "
+                     "con IQR.",
+            justificacion="999 no es una entrega real de casi 3 años, es un marcador de error "
+                           "del sistema de origen; imputar con la mediana evita que ese código "
+                           "de error distorsione cualquier promedio de tiempo de entrega.",
+        )
 
+    # --- Ciudad_Destino ---
     if "Ciudad_Destino" in df.columns:
         col = "Ciudad_Destino"
         resultado = df[col].apply(_normalize_ciudad)
@@ -319,59 +348,77 @@ def clean_transacciones(df: pd.DataFrame, inventario_df: "pd.DataFrame | None" =
         contaminados = resultado.apply(lambda x: x[1])
         n_contaminados = int(contaminados.sum())
         df["Ciudad_Invalida"] = contaminados
-        report["cambios"].append({
-            "columna": col, "accion": "Normalización + detección de contaminación cruzada",
-            "detalle": (
-                f"{n_contaminados} registros tenían 'Ventas_Web' (valor de Canal_Venta, no una "
-                "ciudad) en Ciudad_Destino. Se marcan NaN + flag 'Ciudad_Invalida'=True. "
-                "No se imputa una ciudad (no hay forma confiable de inferirla); quedan excluidos "
-                "de análisis geográficos pero se conservan para el resto de análisis."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Al revisar los valores únicos de Ciudad_Destino se encontró "
+                            f"'Ventas_Web' en {n_contaminados} registros — ese valor pertenece "
+                            "a Canal_Venta, no es una ciudad. Es contaminación cruzada entre "
+                            "columnas, el hallazgo de calidad más importante del dataset.",
+            decision="Esos registros se marcaron como NaN en Ciudad_Destino, y se agregó la "
+                      "columna 'Ciudad_Invalida' para dejarlos visibles y auditables.",
+            justificacion="No hay forma confiable de inferir cuál era la ciudad real para esos "
+                           "registros, así que imputar cualquier ciudad sería inventar un dato. "
+                           "Se prefiere dejarlos fuera de los análisis geográficos en vez de "
+                           "arriesgar una conclusión falsa sobre alguna ciudad.",
+        )
 
     if "Canal_Venta" in df.columns:
         col = "Canal_Venta"
         df[col] = df[col].astype(str).str.strip().str.lower().map(CANAL_MAP).fillna(df[col])
 
+    # --- Estado_Envio ---
     if "Estado_Envio" in df.columns:
         col = "Estado_Envio"
         nulos_ee = int(df[col].isna().sum())
+        pct_ee = 100 * nulos_ee / len(df) if len(df) else 0
         df[col] = df[col].astype(str).str.strip().str.lower().map(ESTADO_ENVIO_MAP)
         df[col] = df[col].fillna("Desconocido")
-        report["cambios"].append({
-            "columna": col, "accion": "Normalización + nulos -> 'Desconocido'",
-            "detalle": (
-                f"{nulos_ee} nulos (16.8%) NO se imputan con una moda estadística porque inventar "
-                "un estado de envío falso distorsionaría el KPI de servicio. Se deja como categoría "
-                "explícita 'Desconocido', auditable en el dashboard."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {nulos_ee} registros ({pct_ee:.1f}%) sin estado de "
+                            "envío registrado.",
+            decision="Se dejaron como una categoría explícita 'Desconocido', en vez de imputar "
+                      "con el estado más frecuente.",
+            justificacion="Imputar un estado de envío (ej. asumir 'Entregado' porque es el más "
+                           "común) inventaría información sobre si el cliente recibió o no su "
+                           "pedido, lo cual distorsionaría directamente el KPI de servicio al "
+                           "cliente. Es preferible mostrar la incertidumbre que ocultarla.",
+        )
 
+    # --- Fecha_Venta ---
     if "Fecha_Venta" in df.columns:
         col = "Fecha_Venta"
-        no_parse = pd.to_datetime(df[col], errors="coerce", dayfirst=True).isna().sum()
+        no_parse = int(pd.to_datetime(df[col], errors="coerce", dayfirst=True).isna().sum())
         df[col] = pd.to_datetime(df[col], errors="coerce", dayfirst=True)
-        futuras = (df[col] > pd.Timestamp.now()).sum()
+        futuras = int((df[col] > pd.Timestamp.now()).sum())
         df.loc[df[col] > pd.Timestamp.now(), col] = np.nan
-        report["cambios"].append({
-            "columna": col, "accion": "Parseo de fechas + invalidación de futuras",
-            "detalle": f"{no_parse} fechas no parseables, {futuras} fechas futuras invalidadas.",
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {no_parse} fechas con formato no interpretable y "
+                            f"{futuras} fechas posteriores al día de hoy.",
+            decision="Las fechas no interpretables y las fechas futuras se invalidaron (NaN).",
+            justificacion="No pueden existir ventas registradas en el futuro; mantenerlas "
+                           "distorsionaría cualquier análisis de tendencia temporal.",
+        )
 
+    # --- SKU fantasma ---
     if inventario_df is not None and "SKU_ID" in df.columns and "SKU_ID" in inventario_df.columns:
         skus_inventario = set(inventario_df["SKU_ID"].dropna().unique())
         df["SKU_Fantasma"] = ~df["SKU_ID"].isin(skus_inventario)
         n_fantasma = int(df["SKU_Fantasma"].sum())
-        pct = 100 * n_fantasma / len(df)
-        report["cambios"].append({
-            "columna": "SKU_ID", "accion": "Flag de venta fantasma (sin eliminar filas)",
-            "detalle": (
-                f"{n_fantasma} ventas ({pct:.1f}%) tienen un SKU inexistente en inventario "
-                "(hallazgo central del reto, Pregunta 3). Se agrega columna 'SKU_Fantasma' "
-                "en vez de eliminar: es una decisión de negocio que se resuelve en "
-                "feature_engineering.py / el informe, no se silencia en la limpieza."
-            ),
-        })
+        pct = 100 * n_fantasma / len(df) if len(df) else 0
+        _registrar_cambio(
+            report, "SKU_ID",
+            identificacion=f"Al cruzar los SKU de las ventas contra el maestro de inventario, "
+                            f"{n_fantasma} ventas ({pct:.1f}%) tienen un SKU que no existe en "
+                            "inventario — es el hallazgo central del reto.",
+            decision="No se eliminó ni se imputó nada: se agregó la columna booleana "
+                      "'SKU_Fantasma' para marcar estos registros sin tocarlos.",
+            justificacion="Decidir si es un producto nuevo no catalogado, un error de "
+                           "digitación o un posible fraude es una decisión de negocio que "
+                           "requiere más contexto del que da la limpieza técnica — se deja "
+                           "trazado para resolverse en feature_engineering.py y en el informe.",
+        )
 
     nulos_despues = df.isna().sum().to_dict()
     report["nulos_antes"] = {k: int(v) for k, v in nulos_antes.items()}
@@ -388,14 +435,21 @@ def clean_feedback(df: pd.DataFrame):
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
 
-    duplicados = df.duplicated(keep="first").sum()
+    # --- Duplicados exactos ---
+    duplicados = int(df.duplicated(keep="first").sum())
     if duplicados > 0:
         df = df.drop_duplicates(keep="first")
-        report["cambios"].append({
-            "columna": "Todas", "accion": "Eliminación de duplicados exactos",
-            "detalle": f"{duplicados} filas 100% idénticas eliminadas. Distinto de una colisión de ID.",
-        })
+        _registrar_cambio(
+            report, "Todas",
+            identificacion=f"Se encontraron {duplicados} filas 100% idénticas en todas sus "
+                            "columnas.",
+            decision="Se eliminaron, conservando la primera aparición de cada una.",
+            justificacion="Una fila idéntica en todas sus columnas no aporta información "
+                           "adicional, es una copia exacta — distinto de una colisión de ID "
+                           "(ver el siguiente paso), donde el contenido sí es diferente.",
+        )
 
+    # --- Colisión de Feedback_ID ---
     if "Feedback_ID" in df.columns:
         dup_mask = df["Feedback_ID"].duplicated(keep=False)
         n_colisiones = int(dup_mask.sum())
@@ -404,16 +458,21 @@ def clean_feedback(df: pd.DataFrame):
             nuevo_id = df["Feedback_ID"].astype(str) + np.where(sufijo > 0, "-" + sufijo.astype(str), "")
             df["Feedback_ID_Original"] = df["Feedback_ID"]
             df["Feedback_ID"] = nuevo_id
-        report["cambios"].append({
-            "columna": "Feedback_ID", "accion": "Regeneración de ID único (NO se eliminan filas)",
-            "detalle": (
-                f"{n_colisiones} filas compartían un Feedback_ID con OTRO Transaccion_ID/rating/edad "
-                "distinto -> colisión de identificador, no duplicado real. La v1 las eliminaba "
-                "(perdía feedback legítimo). v2 conserva todo y genera un ID único con sufijo, "
-                "guardando el original en 'Feedback_ID_Original'."
-            ),
-        })
+        _registrar_cambio(
+            report, "Feedback_ID",
+            identificacion=f"Se encontraron {n_colisiones} filas que comparten un Feedback_ID "
+                            "con otra fila, pero con Transaccion_ID/rating/edad DISTINTOS al "
+                            "revisar el contenido — es una colisión de identificador, no una "
+                            "copia real.",
+            decision="No se eliminó ninguna fila: se generó un ID único agregando un sufijo, "
+                      "y se conservó el ID original en la columna 'Feedback_ID_Original'.",
+            justificacion="Eliminar por ID duplicado (como haría una limpieza más ingenua) "
+                           "habría borrado feedback real de clientes distintos que solo "
+                           "coincidían en el identificador — el problema está en el ID, no en "
+                           "el contenido del registro.",
+        )
 
+    # --- Ratings fuera de escala ---
     for col in ["Rating_Producto", "Rating_Logistica"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -421,12 +480,19 @@ def clean_feedback(df: pd.DataFrame):
             df.loc[(df[col] < 1) | (df[col] > 5), col] = np.nan
             mediana_r = df[col].median()
             df[col] = df[col].fillna(mediana_r)
-            report["cambios"].append({
-                "columna": col, "accion": "Códigos de error (ej. 99) -> NaN + imputación mediana",
-                "detalle": f"{fuera_rango} valores fuera de [1-5] corregidos. "
-                           f"Mediana imputada: {mediana_r:.1f}.",
-            })
+            _registrar_cambio(
+                report, col,
+                identificacion=f"Se encontraron {fuera_rango} valores fuera de la escala válida "
+                                "1-5 (ej. 99) — un valor tan alto y específico apunta a un código "
+                                "de error de captura, no a un rating real.",
+                decision=f"Se trataron como nulo y se imputaron con la mediana "
+                         f"({mediana_r:.1f}).",
+                justificacion="Es una escala ordinal con distribución razonablemente simétrica, "
+                               "así que la mediana representa mejor 'el rating típico' que "
+                               "dejar el código de error o intentar adivinar el valor real.",
+            )
 
+    # --- Edad_Cliente ---
     if "Edad_Cliente" in df.columns:
         col = "Edad_Cliente"
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -434,52 +500,72 @@ def clean_feedback(df: pd.DataFrame):
         df.loc[(df[col] < 0) | (df[col] > 100), col] = np.nan
         mediana_e = df[col].median()
         df[col] = df[col].fillna(mediana_e).astype(int)
-        report["cambios"].append({
-            "columna": col, "accion": "Edades imposibles (>100 o <0) -> NaN + imputación mediana",
-            "detalle": f"{invalidas} edades inválidas corregidas. Mediana imputada: {mediana_e:.0f}.",
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {invalidas} edades biológicamente imposibles "
+                            "(hasta 195 años).",
+            decision=f"Se trataron como nulo y se imputaron con la mediana "
+                     f"({mediana_e:.0f} años).",
+            justificacion="La mediana no se ve afectada por los valores extremos que causaron "
+                           "el problema original, a diferencia de la media.",
+        )
 
+    # --- Satisfaccion_NPS ---
     if "Satisfaccion_NPS" in df.columns:
         col = "Satisfaccion_NPS"
         df[col] = pd.to_numeric(df[col], errors="coerce")
         nulos_nps = int(df[col].isna().sum())
+        rango_obs = f"{df[col].min():.1f} a {df[col].max():.1f}"
         df[col] = df[col].fillna(df[col].median())
-        report["cambios"].append({
-            "columna": col, "accion": "Verificación de escala + imputación de nulos con mediana",
-            "detalle": (
-                f"Rango observado -99.8 a 99.9: coincide con la escala estándar NPS (-100 a 100), "
-                f"no requiere renormalización. {nulos_nps} nulos imputados con la mediana."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se verificó el rango observado ({rango_obs}) contra la escala "
+                            f"estándar de NPS (-100 a 100): coincide, no hay que renormalizar. "
+                            f"Se encontraron {nulos_nps} nulos.",
+            decision="Se aseguró el tipo numérico y se imputaron los nulos con la mediana.",
+            justificacion="No aplica ninguna transformación de escala porque los datos ya "
+                           "vienen en el rango esperado; solo se resuelve la ausencia de dato.",
+        )
 
     if "Ticket_Soporte_Abierto" in df.columns:
         col = "Ticket_Soporte_Abierto"
         df[col] = df[col].astype(str).str.strip().str.lower().map(TICKET_MAP)
         df[col] = df[col].fillna(0).astype(int)
 
+    # --- Recomienda_Marca ---
     if "Recomienda_Marca" in df.columns:
         col = "Recomienda_Marca"
+        valores_crudos = df[col].dropna().unique().tolist()
         antes_nulos = int(df[col].isna().sum())
+        pct_nulos = 100 * antes_nulos / len(df) if len(df) else 0
         df[col] = df[col].astype(str).str.strip().str.lower().map(RECOMIENDA_MAP)
-        report["cambios"].append({
-            "columna": col, "accion": "Normalización case-insensitive a Sí/No/Maybe",
-            "detalle": (
-                "BUG FIX: v1 no reconocía 'SI'/'NO' en mayúsculas y dejaba la columna intacta. "
-                f"v2 normaliza sin importar mayúscula/tilde. {antes_nulos} nulos (24.9%) se "
-                "DEJAN como NaN — no se imputa una recomendación de marca inventada."
-            ),
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Los valores venían en formatos inconsistentes ({valores_crudos[:5]}...) "
+                            f"y {antes_nulos} registros ({pct_nulos:.1f}%) no tenían respuesta.",
+            decision="Se normalizaron los valores sin importar mayúscula/tilde a Sí/No/Maybe. "
+                      "Los nulos se DEJARON como NaN, sin imputar.",
+            justificacion="Es la opinión subjetiva de un cliente sobre si recomendaría la marca; "
+                           "no hay ninguna base para inventar esa opinión cuando el cliente no "
+                           "respondió — imputarla introduciría un sesgo falso en cualquier "
+                           "análisis de lealtad.",
+        )
 
+    # --- Comentario_Texto ---
     if "Comentario_Texto" in df.columns:
         col = "Comentario_Texto"
         placeholders_set = {"N/A", "n/a", "NA", "na", "---", "", "-"}
         placeholders = int(df[col].isin(placeholders_set).sum())
         df.loc[df[col].isin(placeholders_set), col] = np.nan
-        report["cambios"].append({
-            "columna": col, "accion": "Placeholders -> NaN",
-            "detalle": f"{placeholders} comentarios placeholder convertidos a NaN. No se imputan "
-                       "(texto libre, no se puede inventar contenido).",
-        })
+        _registrar_cambio(
+            report, col,
+            identificacion=f"Se encontraron {placeholders} comentarios con texto placeholder "
+                            "('N/A', '---', vacío) en vez de una ausencia real de dato o un "
+                            "comentario genuino.",
+            decision="Se convirtieron explícitamente a NaN. No se imputan.",
+            justificacion="Es texto libre — no existe una forma razonable de 'rellenar' el "
+                           "contenido de un comentario que el cliente no escribió.",
+        )
 
     nulos_despues = df.isna().sum().to_dict()
     report["nulos_antes"] = {k: int(v) for k, v in nulos_antes.items()}
@@ -514,8 +600,10 @@ if __name__ == "__main__":
     cleaned, reports = clean_all_datasets(raw)
 
     for rep in reports:
-        print(f"\n=== {rep['dataset'].upper()} ===")
+        print(f"\n{'='*70}\n{rep['dataset'].upper()}\n{'='*70}")
         for c in rep["cambios"]:
-            print(f"  [{c['columna']}] {c['accion']}")
-            print(f"      {c['detalle']}")
-        print(f"  Nulos antes: {sum(rep['nulos_antes'].values())} -> después: {sum(rep['nulos_despues'].values())}")
+            print(f"\n[{c['columna']}]")
+            print(f"  Se identificó: {c['identificacion']}")
+            print(f"  Se decidió:    {c['decision']}")
+            print(f"  Justificación: {c['justificacion']}")
+        print(f"\nTotal nulos antes: {sum(rep['nulos_antes'].values())} -> después: {sum(rep['nulos_despues'].values())}")

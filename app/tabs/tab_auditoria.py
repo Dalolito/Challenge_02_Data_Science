@@ -55,8 +55,9 @@ def _descargar_reporte_csv(reportes: list) -> bytes:
             filas.append({
                 "dataset": rep["dataset"],
                 "columna": cambio["columna"],
-                "accion": cambio["accion"],
-                "detalle": cambio["detalle"],
+                "identificacion": cambio["identificacion"],
+                "decision": cambio["decision"],
+                "justificacion": cambio["justificacion"],
             })
     df = pd.DataFrame(filas)
     buf = io.StringIO()
@@ -119,8 +120,13 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
                 continue
 
             for cambio in rep["cambios"]:
-                with st.expander(f"**{cambio['columna']}** — {cambio['accion']}"):
-                    st.write(cambio["detalle"])
+                with st.expander(f"**{cambio['columna']}**"):
+                    st.markdown(f"🔎 **Cómo se identificó**")
+                    st.write(cambio["identificacion"])
+                    st.markdown(f"🛠️ **Qué se decidió**")
+                    st.write(cambio["decision"])
+                    st.markdown(f"💡 **Por qué**")
+                    st.write(cambio["justificacion"])
 
     st.divider()
 
