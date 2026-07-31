@@ -10,11 +10,58 @@ import io
 import os
 import sys
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from quality_metrics import resumen_calidad_completo
+
+
+def _titulo_seccion(texto: str):
+    """Renderiza un título de sección como badge azul claro y translúcido."""
+    st.markdown(
+        f"""
+        <div style="
+            background-color:rgba(96, 165, 250, 0.15);
+            border:1px solid rgba(96, 165, 250, 0.35);
+            display:inline-block;
+            padding:8px 18px;
+            border-radius:8px;
+            margin:18px 0 10px 0;
+        ">
+            <span style="color:#93c5fd; font-weight:700; font-size:1.7rem; text-decoration:none;">{texto}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _metric_box(col, etiqueta: str, valor: str, delta: str = None, delta_es_bueno: bool = True):
+    """Renderiza una métrica dentro de un cuadro amarillo claro y translúcido."""
+    delta_html = ""
+    if delta is not None:
+        color_delta = "#4ade80" if delta_es_bueno else "#f87171"
+        delta_html = (
+            f'<div style="color:{color_delta}; font-size:0.95rem; margin-top:4px;">{delta}</div>'
+        )
+    with col:
+        st.markdown(
+            f"""
+            <div style="
+                background-color:rgba(250, 220, 96, 0.15);
+                border:1px solid rgba(250, 220, 96, 0.35);
+                border-radius:8px;
+                padding:12px 18px;
+                margin-bottom:8px;
+            ">
+                <div style="color:#fde68a; font-size:0.9rem;">{etiqueta}</div>
+                <div style="color:#ffffff; font-weight:700; font-size:1.8rem;">{valor}</div>
+                {delta_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # Utilidades internas
@@ -73,8 +120,46 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
         "esta pestaña se actualiza sola."
     )
 
+    st.markdown(
+        """
+        <style>
+        .badge-inline {
+            background-color:rgba(96, 165, 250, 0.15);
+            border:1px solid rgba(96, 165, 250, 0.35);
+            color:#93c5fd;
+            font-weight:700;
+            padding:1px 8px;
+            border-radius:6px;
+            text-decoration:none;
+            white-space:nowrap;
+        }
+        </style>
+        <div style="font-size:1rem; line-height:1.8;">
+        Esta pestaña documenta <b style="text-decoration:none;">qué tan confiables son los datos</b>
+        y <b style="text-decoration:none;">qué se hizo para corregirlos</b>,
+        antes de que cualquier análisis de negocio se construya sobre ellos:
+        <ol style="margin-top:10px;">
+            <li><span class="badge-inline">Calidad de datos — 4 dimensiones:</span> qué tan
+                completos, únicos, válidos y consistentes están los 3 datasets, antes y después
+                de la limpieza.</li>
+            <li><span class="badge-inline">Errores detectados y corrección aplicada:</span>
+                el detalle columna por columna de cada problema encontrado, la decisión tomada
+                y por qué.</li>
+            <li><span class="badge-inline">Antes vs Después:</span> comparación con filas
+                reales, para verificar la limpieza a simple vista.</li>
+            <li><span class="badge-inline">Registros excluidos/marcados:</span> casos que no
+                se corrigieron automáticamente (como el SKU Fantasma) porque requieren una
+                decisión de negocio, no una regla de limpieza.</li>
+            <li><span class="badge-inline">Reporte descargable:</span> el log completo de
+                todas las correcciones, en CSV.</li>
+        </ol>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # 1. Calidad en 4 dimensiones (no solo nulos)
-    st.subheader("1. Calidad de datos — 4 dimensiones")
+    _titulo_seccion("1. Calidad de datos — 4 dimensiones")
     st.caption(
         "Medir solo '% de nulos' esconde problemas: un Rating_Producto=99 o una "
         "Ciudad_Destino='Ventas_Web' no son nulos, son datos presentes pero inválidos "
@@ -102,24 +187,75 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     for tab, nombre_ds in zip(tabs_dimensiones, datasets_crudos.keys()):
         with tab:
             sub = tabla_dimensiones[tabla_dimensiones["Dataset"] == nombre_ds.capitalize()]
+            antes_completo = resumen_calidad_completo(datasets_crudos[nombre_ds], nombre_ds)
+            despues_completo = resumen_calidad_completo(datasets_limpios.get(nombre_ds), nombre_ds)
 
-            col_tabla, col_grafico = st.columns([1, 1.3])
+            _, col_tabla, _ = st.columns([0.5, 3, 0.5])
             with col_tabla:
+                columnas_a_quitar = ["Dataset"]
+                if despues_completo["consistencia"] is None:
+                    columnas_a_quitar.append("Consistencia")
                 st.dataframe(
-                    sub.drop(columns="Dataset").set_index("Momento"),
+                    sub.drop(columns=columnas_a_quitar).set_index("Momento"),
                     width="stretch",
                 )
-            with col_grafico:
-                chart_df = sub.melt(
-                    id_vars="Momento",
-                    value_vars=["Completitud", "Unicidad", "Validez", "Consistencia"],
-                    var_name="Dimensión", value_name="Score",
-                ).dropna(subset=["Score"])
-                if not chart_df.empty:
-                    st.bar_chart(chart_df, x="Dimensión", y="Score", color="Momento", stack=False)
+
+            st.markdown("<div style='height:36px'></div>", unsafe_allow_html=True)
+
+            chart_df = sub.melt(
+                id_vars="Momento",
+                value_vars=["Completitud", "Unicidad", "Validez", "Consistencia"],
+                var_name="Dimensión", value_name="Score",
+            ).dropna(subset=["Score"])
+            if not chart_df.empty:
+                grafico = (
+                    alt.Chart(chart_df)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Dimensión:N", title="Dimensión"),
+                        xOffset="Momento:N",
+                        y=alt.Y(
+                            "Score:Q", title="Score",
+                            scale=alt.Scale(domain=[0, 100]),
+                            axis=alt.Axis(tickMinStep=10, values=list(range(0, 101, 10))),
+                        ),
+                        color=alt.Color("Momento:N"),
+                        tooltip=["Dimensión", "Momento", "Score"],
+                    )
+                    .properties(height=380)
+                    # Sin .interactive(): así el gráfico queda fijo, sin zoom
+                    # ni paneo con la rueda del mouse.
+                )
+                st.altair_chart(grafico, width='stretch')
+
+            # --- Heatmap de validez por columna (antes vs después) ---
+            validez_antes = antes_completo["validez_detalle"]
+            validez_despues = despues_completo["validez_detalle"]
+            columnas_validez = sorted(set(validez_antes) | set(validez_despues))
+
+            if columnas_validez:
+                st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+                st.markdown("**% de valores válidos por columna — antes vs después**")
+                filas_heatmap = []
+                for col in columnas_validez:
+                    filas_heatmap.append({
+                        "Columna": col,
+                        "% válido (antes)": validez_antes.get(col, {}).get("pct_valido"),
+                        "% válido (después)": validez_despues.get(col, {}).get("pct_valido"),
+                    })
+                df_heatmap = pd.DataFrame(filas_heatmap).set_index("Columna")
+
+                _, col_heatmap, _ = st.columns([0.5, 3, 0.5])
+                with col_heatmap:
+                    st.dataframe(
+                        df_heatmap.style.background_gradient(
+                            cmap="RdYlGn", vmin=0, vmax=100,
+                        ).format("{:.1f}%"),
+                        width="stretch",
+                    )
 
             # Detalle de validez por columna, si aplica
-            despues = resumen_calidad_completo(datasets_limpios.get(nombre_ds), nombre_ds)
+            despues = despues_completo
             if despues["consistencia_detalle"]:
                 st.markdown("**Detalle de consistencia (dataset limpio):**")
                 for col_flag, info in despues["consistencia_detalle"].items():
@@ -129,7 +265,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     st.divider()
 
     # 2. Qué se encontró y cómo se corrigió, por dataset
-    st.subheader("2. Errores detectados y corrección aplicada")
+    _titulo_seccion("2. Errores detectados y corrección aplicada")
 
     tabs_dataset = st.tabs([nombres_bonitos.get(r["dataset"], r["dataset"]) for r in reportes])
 
@@ -138,10 +274,12 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
             nulos_antes = sum(rep["nulos_antes"].values())
             nulos_despues = sum(rep["nulos_despues"].values())
             c1, c2, c3 = st.columns(3)
-            c1.metric("Nulos totales — antes", f"{nulos_antes:,}")
-            c2.metric("Nulos totales — después", f"{nulos_despues:,}",
-                       delta=int(nulos_despues - nulos_antes), delta_color="inverse")
-            c3.metric("Correcciones aplicadas", len(rep["cambios"]))
+            _metric_box(c1, "Nulos totales — antes", f"{nulos_antes:,}")
+            diferencia = nulos_despues - nulos_antes
+            flecha = "↓" if diferencia < 0 else ("↑" if diferencia > 0 else "→")
+            _metric_box(c2, "Nulos totales — después", f"{nulos_despues:,}",
+                        delta=f"{flecha} {diferencia:+,}", delta_es_bueno=(diferencia <= 0))
+            _metric_box(c3, "Correcciones aplicadas", str(len(rep["cambios"])))
 
             if not rep["cambios"]:
                 st.info("No se registraron cambios para este dataset.")
@@ -159,7 +297,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     st.divider()
 
     # 3. Antes vs Después — muestra de filas reales
-    st.subheader("3. Antes vs Después — ejemplo de filas")
+    _titulo_seccion("3. Antes vs Después — ejemplo de filas")
     st.caption("Selecciona un dataset y una columna para comparar los valores crudos contra los ya limpios.")
 
     dataset_sel = st.selectbox(
@@ -186,7 +324,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     st.divider()
 
     # 4. Registros marcados / excluidos (flags de transparencia)
-    st.subheader("4. Ver registros excluidos / marcados")
+    _titulo_seccion("4. Ver registros excluidos / marcados")
     st.caption(
         "Estas columnas de flag las crea `cleaning.py` para casos que NO se pueden "
         "corregir automáticamente (requieren una decisión de negocio)."
@@ -232,10 +370,37 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
     st.divider()
 
     # 5. Descarga del reporte completo de limpieza
-    st.subheader("5. Reporte completo de limpieza")
-    st.download_button(
-        "⬇️ Descargar reporte de limpieza (CSV)",
-        data=_descargar_reporte_csv(reportes),
-        file_name="reporte_limpieza.csv",
-        mime="text/csv",
+    _titulo_seccion("5. Reporte completo de limpieza")
+    st.markdown(
+        "El CSV incluye, para cada corrección aplicada en los 3 datasets: el **dataset** al que "
+        "pertenece, la **columna** afectada, **cómo se identificó** el problema, **qué decisión** "
+        "se tomó y la **justificación** detrás de esa decisión — el mismo detalle que se muestra "
+        "en los expanders de la sección 2, pero en un solo archivo para compartir con la junta."
     )
+
+    st.markdown(
+        """
+        <style>
+        div.st-key-btn_descarga_reporte button {
+            background-color: rgba(74, 222, 128, 0.25);
+            border: 1px solid rgba(74, 222, 128, 0.5);
+        }
+        div.st-key-btn_descarga_reporte button p {
+            color: #ffffff;
+            font-weight: 700;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _, col_boton, _ = st.columns([1, 1, 1])
+    with col_boton:
+        st.download_button(
+            "Descargar reporte de limpieza (CSV)",
+            data=_descargar_reporte_csv(reportes),
+            file_name="reporte_limpieza.csv",
+            mime="text/csv",
+            width="stretch",
+            key="btn_descarga_reporte",
+        )

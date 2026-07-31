@@ -4,6 +4,7 @@ numpy
 openpyxl
 matplotlib
 seaborn
+jinja2
 plotly
 groq
 jupyter
