@@ -135,4 +135,4 @@ with tab4:
     tab_ia_insights.render(df_filtrado)
 
 with tab5:
-    tab_resumen_ejecutivo.render(df_filtrado)
+    tab_resumen_ejecutivo.render(df_filtrado, datasets_crudos, reportes_limpieza)

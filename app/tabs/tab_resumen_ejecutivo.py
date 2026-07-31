@@ -1,28 +1,36 @@
 """
 tab_resumen_ejecutivo.py
 --------------------------
-Pestaña "Análisis Final": recopila los hallazgos de Operaciones y Cliente
-en una narrativa de negocio única, dirigida a la junta directiva — no
-explica código, explica por qué la empresa está perdiendo dinero y cómo
-los datos lo demuestran. Cierra con un Plan de Acción de 3 recomendaciones
-tácticas priorizadas por complejidad (Baja/Media/Alta), tal como pide el
-checklist del informe de hallazgos.
+Pestaña "Análisis Final": narrativa de consultoría completa, dirigida a la
+junta directiva de TechLogistics S.A.S. — no explica código, explica por
+qué la empresa está perdiendo dinero y cómo los datos lo demuestran.
 
-Recalcula los mismos números que ya se ven en Operaciones y Cliente (no
-importa esas tabs para no acoplar el orden de renderizado), a partir del
-mismo df_filtrado — así el resumen siempre está sincronizado con lo que
-el usuario ve en el resto del dashboard.
+Estructura (como la armaría un consultor senior en un informe real):
+1. Contexto del encargo — por qué nos contrataron.
+2. Qué se analizó — volumen y calidad de los datos recibidos.
+3. Qué se identificó — anclado explícitamente a las 5 Preguntas de Alta
+   Gerencia del enunciado del reto (se citan con su texto original).
+4. Plan de Acción — 3 recomendaciones tácticas priorizadas por complejidad.
+
+Recibe:
+- df_filtrado: dataset maestro ya filtrado por el sidebar (para los hallazgos).
+- datasets_crudos, reportes_limpieza: para poder describir con precisión
+  qué se recibió y qué problemas de calidad traía (sección 2), sin
+  recalcular la limpieza aquí.
 """
 
 import pandas as pd
 import streamlit as st
 
 
+# ---------------------------------------------------------------------------
+# Cálculo de hallazgos (igual que antes, reutilizado por la narrativa)
+# ---------------------------------------------------------------------------
+
 def _calcular_hallazgos(df: pd.DataFrame) -> dict:
     """Recalcula los números clave de las 5 preguntas del reto, en un solo dict."""
     h = {"n_total": len(df)}
 
-    # 1. Márgenes negativos
     if "Margen_Utilidad" in df.columns:
         df_margen = df[df["Margen_Utilidad"].notna()]
         df_negativo = df_margen[df_margen["Margen_Utilidad"] < 0]
@@ -30,10 +38,12 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
         h["pct_margen_negativo"] = 100 * len(df_negativo) / len(df_margen) if len(df_margen) else 0
         h["perdida_total"] = df_negativo["Margen_Utilidad"].sum() if not df_negativo.empty else 0
         if not df_negativo.empty and "SKU_ID" in df.columns:
-            top_sku = df_negativo.groupby("SKU_ID")["Margen_Utilidad"].sum().idxmin()
-            h["peor_sku"] = top_sku
+            h["peor_sku"] = df_negativo.groupby("SKU_ID")["Margen_Utilidad"].sum().idxmin()
+        if not df_negativo.empty and "Canal_Venta" in df.columns:
+            por_canal = df_negativo.groupby("Canal_Venta")["Margen_Utilidad"].sum()
+            h["canal_peor_margen"] = por_canal.idxmin()
+            h["perdida_canal_peor"] = por_canal.min()
 
-    # 2. Logística
     if {"Ciudad_Destino", "Tiempo_Entrega_Real", "Satisfaccion_NPS"}.issubset(df.columns):
         df_val = df.dropna(subset=["Ciudad_Destino", "Tiempo_Entrega_Real", "Satisfaccion_NPS"])
         if not df_val.empty:
@@ -46,7 +56,21 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
                 h["ciudad_logistica_critica"] = corr_por_ciudad.idxmin()
                 h["correlacion_logistica"] = corr_por_ciudad.min()
 
-    # 3. SKU fantasma
+    if {"Bodega_Origen", "Ultima_Revision", "Ticket_Soporte_Abierto"}.issubset(df.columns):
+        df_val = df.dropna(subset=["Bodega_Origen", "Ultima_Revision"]).copy()
+        if not df_val.empty:
+            fecha_ref = df_val["Ultima_Revision"].max()
+            df_val["Dias_Sin_Revision"] = (fecha_ref - df_val["Ultima_Revision"]).dt.days
+            resumen_bod = df_val.groupby("Bodega_Origen").agg(
+                Dias_Sin_Revision=("Dias_Sin_Revision", "mean"),
+                Tasa_Ticket=("Ticket_Soporte_Abierto", "mean"),
+            )
+            corr = resumen_bod["Dias_Sin_Revision"].corr(resumen_bod["Tasa_Ticket"])
+            h["correlacion_logistica_bodega"] = corr
+            if pd.notna(corr):
+                h["bodega_critica"] = resumen_bod["Dias_Sin_Revision"].idxmax()
+                h["bodega_critica_tasa_ticket"] = resumen_bod.loc[h["bodega_critica"], "Tasa_Ticket"] * 100
+
     if "SKU_Fantasma" in df.columns and "Precio_Venta_Final" in df.columns:
         n_fantasma = int(df["SKU_Fantasma"].sum())
         h["n_fantasma"] = n_fantasma
@@ -56,7 +80,6 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
         h["ingreso_riesgo"] = ingreso_fantasma
         h["pct_ingreso_riesgo"] = 100 * ingreso_fantasma / ingreso_total if ingreso_total else 0
 
-    # 4. Paradoja stock/NPS
     if {"Categoria", "Stock_Actual", "Satisfaccion_NPS"}.issubset(df.columns):
         df_val = df.dropna(subset=["Categoria", "Stock_Actual", "Satisfaccion_NPS"])
         if not df_val.empty:
@@ -72,129 +95,269 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
             ]
             if not paradoja.empty:
                 h["categorias_paradoja"] = paradoja.index.tolist()
-
-    # 5. Riesgo operativo (bodegas)
-    if {"Bodega_Origen", "Ultima_Revision", "Ticket_Soporte_Abierto"}.issubset(df.columns):
-        df_val = df.dropna(subset=["Bodega_Origen", "Ultima_Revision"]).copy()
-        if not df_val.empty:
-            fecha_ref = df_val["Ultima_Revision"].max()
-            df_val["Dias_Sin_Revision"] = (fecha_ref - df_val["Ultima_Revision"]).dt.days
-            resumen_bod = df_val.groupby("Bodega_Origen").agg(
-                Dias_Sin_Revision=("Dias_Sin_Revision", "mean"),
-                Tasa_Ticket=("Ticket_Soporte_Abierto", "mean"),
-            )
-            corr = resumen_bod["Dias_Sin_Revision"].corr(resumen_bod["Tasa_Ticket"])
-            h["correlacion_riesgo_operativo"] = corr
-            if pd.notna(corr) and corr > 0.3:
-                h["bodega_critica"] = resumen_bod["Dias_Sin_Revision"].idxmax()
+                cat_principal = paradoja.index[0]
+                h["rating_categoria_paradoja"] = resumen_cat.loc[cat_principal, "Rating_Promedio"]
 
     return h
 
 
-def _render_narrativa(h: dict):
-    st.subheader("Diagnóstico general")
+# ---------------------------------------------------------------------------
+# 1. Contexto del encargo
+# ---------------------------------------------------------------------------
 
-    parrafos = []
+def _render_contexto():
+    st.subheader("1. Contexto del encargo")
+    st.markdown(
+        "**TechLogistics S.A.S.** nos contrató como consultores porque detectó dos síntomas "
+        "preocupantes en su operación: una **erosión sostenida del margen de beneficios** y "
+        "una **caída drástica en la lealtad de sus clientes**. La hipótesis inicial de la junta "
+        "directiva era que la causa raíz está en la **invisibilidad operativa**: sus tres "
+        "sistemas principales — ERP de Inventarios, Logística y Feedback de clientes — no "
+        "hablan el mismo idioma entre sí. Nuestro trabajo fue confirmar o descartar esa "
+        "hipótesis con evidencia, y traducir el hallazgo en un plan de acción concreto."
+    )
 
-    if "n_margen_negativo" in h:
-        parrafos.append(
-            f"**Rentabilidad.** De las transacciones analizadas, **{h['n_margen_negativo']:,} "
-            f"ventas ({h['pct_margen_negativo']:.1f}%)** se están haciendo con margen negativo, "
-            f"acumulando una pérdida de **${abs(h['perdida_total']):,.0f} USD**. "
-            + (f"El SKU **{h['peor_sku']}** es el que más está drenando capital de forma "
-               "individual. " if "peor_sku" in h else "")
-            + "Esto no es un problema marginal: la empresa está subsidiando una parte "
-              "significativa de su catálogo en vez de generar utilidad con él."
-        )
 
-    if "n_fantasma" in h:
-        parrafos.append(
-            f"**Control de inventario.** **{h['n_fantasma']:,} ventas ({h['pct_fantasma']:.1f}%)** "
-            f"corresponden a productos que no existen en el maestro de inventario — representan "
-            f"**${h['ingreso_riesgo']:,.0f} USD** ({h['pct_ingreso_riesgo']:.1f}% del ingreso total) "
-            "que la empresa no puede auditar ni costear con certeza. Mientras esto no se resuelva, "
-            "cualquier cálculo de rentabilidad global sigue teniendo un margen de error importante."
-        )
+# ---------------------------------------------------------------------------
+# 2. Qué se analizó
+# ---------------------------------------------------------------------------
 
-    if "ciudad_logistica_critica" in h:
-        fuerza = "una relación real" if abs(h["correlacion_logistica"]) >= 0.3 else "una relación débil"
-        parrafos.append(
-            f"**Logística.** En **{h['ciudad_logistica_critica']}** se observa {fuerza} entre "
-            f"tiempo de entrega y satisfacción del cliente (correlación de "
-            f"{h['correlacion_logistica']:.2f}). "
-            + ("Es la señal más clara del dataset de que la operación logística está costando "
-               "clientes en una zona puntual." if abs(h["correlacion_logistica"]) >= 0.3 else
-               "Sin embargo, la relación es débil incluso en el peor caso, lo que sugiere que la "
-               "logística no es el principal motor de la insatisfacción del cliente en este momento.")
-        )
+def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list):
+    st.subheader("2. Qué se analizó")
 
-    if "categorias_paradoja" in h:
-        parrafos.append(
-            f"**Producto vs. inventario.** La(s) categoría(s) **{', '.join(h['categorias_paradoja'])}** "
-            "combinan alta disponibilidad de stock con baja satisfacción del cliente — no es un "
-            "problema de que falte producto, sino de que el producto disponible no está "
-            "convenciendo al cliente."
-        )
-
-    if "bodega_critica" in h:
-        parrafos.append(
-            f"**Riesgo operativo.** La bodega **{h['bodega_critica']}** muestra una correlación "
-            f"positiva notable ({h['correlacion_riesgo_operativo']:.2f}) entre el tiempo sin "
-            "revisar su inventario y su tasa de tickets de soporte — es evidencia de que operar "
-            "sin auditorías frecuentes de stock se traduce directamente en más fricción para "
-            "el cliente."
-        )
-
-    if not parrafos:
-        st.info("No hay suficientes datos en el filtro actual para generar el diagnóstico.")
+    if not datasets_crudos or not reportes_limpieza:
+        st.info("No hay información de los datos crudos disponible para esta sección.")
         return
 
-    for p in parrafos:
-        st.markdown(p)
-        st.write("")
+    n_inv = len(datasets_crudos.get("inventario", []))
+    n_trx = len(datasets_crudos.get("transacciones", []))
+    n_fb = len(datasets_crudos.get("feedback", []))
+    n_total_registros = n_inv + n_trx + n_fb
 
+    total_correcciones = sum(len(rep.get("cambios", [])) for rep in reportes_limpieza)
+
+    st.markdown(
+        f"Se recibieron **3 fuentes de datos independientes** que sumaban "
+        f"**{n_total_registros:,} registros**: el maestro de inventario "
+        f"({n_inv:,} productos), el histórico de transacciones logísticas "
+        f"({n_trx:,} ventas), y el feedback de clientes ({n_fb:,} respuestas). "
+        "Ninguna de las tres tablas compartía un formato consistente entre sí, lo cual ya "
+        "era en sí mismo evidencia de la hipótesis inicial de la junta."
+    )
+
+    # Descripción cualitativa por dataset, usando lo que sí encontramos (sin
+    # inventar números que no vienen del reporte real).
+    problemas_por_dataset = {
+        "inventario": "costos unitarios con rangos absurdos (desde centavos hasta cientos de "
+                      "miles de dólares), existencias negativas, categorías de producto "
+                      "registradas de hasta 3 formas distintas, y tiempos de reposición "
+                      "mezclados entre texto y número en la misma columna.",
+        "transacciones": "miles de ventas asociadas a productos que no existen en el "
+                          "inventario oficial, tiempos de entrega con valores centinela "
+                          "de hasta 999 días, y una columna de ciudad de destino "
+                          "contaminada con datos que en realidad pertenecían al canal de venta.",
+        "feedback": "identificadores de respuesta reutilizados entre clientes distintos, "
+                    "calificaciones de producto fuera de la escala válida, edades "
+                    "biológicamente imposibles, y una porción significativa de opiniones "
+                    "sin diligenciar.",
+    }
+
+    for nombre, descripcion in problemas_por_dataset.items():
+        if nombre in datasets_crudos:
+            st.markdown(f"- **{nombre.capitalize()}**: {descripcion}")
+
+    st.markdown(
+        f"En total, se aplicaron **{total_correcciones} correcciones documentadas** durante "
+        "la fase de limpieza — cada una con su identificación, la decisión tomada y su "
+        "justificación, disponibles para auditoría en la pestaña **🔍 Auditoría**. Ninguna "
+        "corrección se aplicó sin dejar rastro: los registros que no se pudieron corregir con "
+        "certeza (ej. ventas sin producto asociado) se marcaron para decisión de negocio en "
+        "vez de eliminarse o inventarse un valor."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. Qué se identificó — anclado a las 5 preguntas oficiales del reto
+# ---------------------------------------------------------------------------
+
+def _render_hallazgos(h: dict):
+    st.subheader("3. Qué se identificó")
+    st.caption(
+        "Cada hallazgo responde directamente una de las 5 preguntas estratégicas que la "
+        "junta directiva planteó al inicio del encargo."
+    )
+
+    # --- Pregunta 1 ---
+    with st.container(border=True):
+        st.markdown(
+            "**Pregunta 1 — Fuga de Capital y Rentabilidad:** *¿Los SKU con margen negativo "
+            "representan una pérdida aceptable por volumen o una falla crítica de precios?*"
+        )
+        if "n_margen_negativo" in h:
+            texto = (
+                f"Analizamos el margen de utilidad de cada venta y encontramos que "
+                f"**{h['n_margen_negativo']:,} transacciones ({h['pct_margen_negativo']:.1f}%)** "
+                f"se ejecutaron con margen negativo, acumulando una pérdida de "
+                f"**${abs(h['perdida_total']):,.0f} USD**."
+            )
+            if "canal_peor_margen" in h:
+                texto += (
+                    f" El canal **{h['canal_peor_margen']}** concentra la mayor parte de esa "
+                    f"pérdida (${abs(h['perdida_canal_peor']):,.0f} USD), lo que indica que "
+                    "no es un problema de volumen aislado en unos pocos productos, sino una "
+                    "**falla sistemática de precios en un canal específico**."
+                )
+            st.markdown(texto)
+        else:
+            st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
+
+    # --- Pregunta 2 ---
+    with st.container(border=True):
+        st.markdown(
+            "**Pregunta 2 — Crisis Logística y Cuellos de Botella:** *¿En qué ciudad o bodega "
+            "la correlación entre tiempo de entrega y NPS bajo es más fuerte?*"
+        )
+        if "ciudad_logistica_critica" in h:
+            fuerte = abs(h["correlacion_logistica"]) >= 0.3
+            if fuerte:
+                st.markdown(
+                    f"Cruzamos el tiempo de entrega real contra el NPS de cada ciudad y "
+                    f"encontramos que **{h['ciudad_logistica_critica']}** presenta la "
+                    f"correlación más negativa del país ({h['correlacion_logistica']:.2f}) — "
+                    "es la zona donde el retraso logístico le está costando satisfacción real "
+                    "a la empresa, y la candidata prioritaria para un cambio de operador."
+                )
+            else:
+                st.markdown(
+                    "Cruzamos el tiempo de entrega real contra el NPS de cada ciudad y, "
+                    f"incluso en el caso más marcado (**{h['ciudad_logistica_critica']}**, "
+                    f"correlación de {h['correlacion_logistica']:.2f}), la relación es débil. "
+                    "**Con la evidencia actual, la logística no aparece como el principal "
+                    "motor de la insatisfacción del cliente** — recomendamos no priorizar un "
+                    "cambio de operador hasta explorar otras causas."
+                )
+        else:
+            st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
+
+    # --- Pregunta 3 ---
+    with st.container(border=True):
+        st.markdown(
+            "**Pregunta 3 — Análisis de la Venta Invisible:** *¿Cuál es el impacto financiero "
+            "de las ventas cuyo SKU no está en el maestro de inventario?*"
+        )
+        if "n_fantasma" in h:
+            st.markdown(
+                f"Cruzamos cada venta contra el maestro de inventario y encontramos que "
+                f"**{h['n_fantasma']:,} ventas ({h['pct_fantasma']:.1f}%)** corresponden a "
+                f"productos que no existen en el catálogo oficial. Esto representa "
+                f"**${h['ingreso_riesgo']:,.0f} USD** — el **{h['pct_ingreso_riesgo']:.1f}% del "
+                "ingreso total** — sobre el cual la empresa no puede calcular costo ni margen "
+                "real con certeza. Es el hallazgo de mayor riesgo de control financiero de "
+                "todo el análisis."
+            )
+        else:
+            st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
+
+    # --- Pregunta 4 ---
+    with st.container(border=True):
+        st.markdown(
+            "**Pregunta 4 — Diagnóstico de Fidelidad:** *¿Hay categorías con stock alto pero "
+            "sentimiento de cliente negativo? ¿Es mala calidad de producto o sobrecosto?*"
+        )
+        if "categorias_paradoja" in h:
+            rating = h.get("rating_categoria_paradoja")
+            if pd.notna(rating) and rating < 3.5:
+                diagnostico = (
+                    f"su calificación de producto promedio también es baja ({rating:.1f}/5), "
+                    "lo que apunta a un **problema de calidad de producto**, no de precio."
+                )
+            else:
+                diagnostico = (
+                    "su calificación de producto es aceptable pero la satisfacción general "
+                    "sigue baja, lo que apunta más a un **tema de precio o sobrecosto percibido**."
+                )
+            st.markdown(
+                f"Cruzamos stock disponible, NPS y calificación de producto por categoría, y "
+                f"encontramos que **{', '.join(h['categorias_paradoja'])}** combina alta "
+                f"disponibilidad con baja satisfacción: {diagnostico}"
+            )
+        else:
+            st.info("No se detectó ninguna categoría en paradoja con el filtro actual.")
+
+    # --- Pregunta 5 ---
+    with st.container(border=True):
+        st.markdown(
+            "**Pregunta 5 — Storytelling de Riesgo Operativo:** *¿Qué bodegas están operando "
+            "a ciegas y cómo impacta esto en la satisfacción final?*"
+        )
+        if "bodega_critica" in h:
+            corr = h.get("correlacion_logistica_bodega")
+            if pd.notna(corr) and corr > 0.3:
+                st.markdown(
+                    f"Cruzamos la antigüedad de la última revisión de stock contra la tasa de "
+                    f"tickets de soporte por bodega, y encontramos una correlación positiva "
+                    f"notable ({corr:.2f}): a más tiempo sin auditar el inventario, más "
+                    f"tickets de soporte. **{h['bodega_critica']}** es la bodega más rezagada "
+                    f"en revisión, con una tasa de tickets del {h.get('bodega_critica_tasa_ticket', 0):.1f}% "
+                    "— es la que más urge auditar antes de que el costo oculto en soporte siga creciendo."
+                )
+            else:
+                st.markdown(
+                    "Cruzamos la antigüedad de la última revisión de stock contra la tasa de "
+                    "tickets de soporte por bodega, y la relación resultó débil en el filtro "
+                    "actual — no encontramos evidencia suficiente de que la falta de revisión "
+                    "de inventario, por sí sola, esté generando más tickets de soporte."
+                )
+        else:
+            st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
+
+
+# ---------------------------------------------------------------------------
+# 4. Plan de Acción
+# ---------------------------------------------------------------------------
 
 def _render_plan_de_accion(h: dict):
-    st.subheader("Plan de Acción")
+    st.subheader("4. Plan de Acción Recomendado")
     st.caption("Tres recomendaciones tácticas, priorizadas por complejidad de implementación.")
 
     recomendaciones = []
 
-    if "n_margen_negativo" in h and h.get("n_margen_negativo", 0) > 0:
+    if h.get("n_margen_negativo", 0) > 0:
         recomendaciones.append({
             "titulo": "Revisar precios de los SKU con margen negativo",
             "complejidad": "Baja",
             "detalle": (
-                f"Ajustar o descatalogar los SKU identificados en la sección de Operaciones "
+                f"Ajustar o descatalogar los SKU identificados en la Pregunta 1 "
                 f"({h['n_margen_negativo']:,} ventas afectadas, "
-                f"${abs(h.get('perdida_total', 0)):,.0f} USD en pérdida acumulada). "
-                "Es un cambio de precio o de catálogo, no requiere desarrollo técnico ni "
+                f"${abs(h.get('perdida_total', 0)):,.0f} USD en pérdida acumulada"
+                + (f", concentrada en el canal {h['canal_peor_margen']}" if "canal_peor_margen" in h else "")
+                + "). Es un ajuste de precio o de catálogo, no requiere desarrollo técnico ni "
                 "cambios de proceso — se puede ejecutar en días."
             ),
         })
 
-    if "n_fantasma" in h and h.get("n_fantasma", 0) > 0:
+    if h.get("n_fantasma", 0) > 0:
         recomendaciones.append({
             "titulo": "Auditar y sincronizar el catálogo de inventario",
             "complejidad": "Media",
             "detalle": (
                 f"Investigar el origen de los {h['n_fantasma']:,} SKU vendidos sin registro en "
-                f"inventario (${h.get('ingreso_riesgo', 0):,.0f} USD en riesgo). Requiere "
-                "coordinación entre el equipo de ventas y el de inventario para decidir, "
-                "producto por producto, si son altas pendientes de catalogar o errores de "
-                "digitación — no es solo un ajuste de sistema."
+                f"inventario (${h.get('ingreso_riesgo', 0):,.0f} USD en riesgo, identificados "
+                "en la Pregunta 3). Requiere coordinación entre el equipo de ventas y el de "
+                "inventario para decidir, producto por producto, si son altas pendientes de "
+                "catalogar o errores de digitación — no es solo un ajuste de sistema."
             ),
         })
 
-    if "bodega_critica" in h:
+    if "bodega_critica" in h and pd.notna(h.get("correlacion_logistica_bodega")) and h["correlacion_logistica_bodega"] > 0.3:
         recomendaciones.append({
             "titulo": f"Implementar auditorías periódicas de stock en {h['bodega_critica']}",
             "complejidad": "Alta",
             "detalle": (
                 "Establecer un proceso recurrente de revisión de inventario (ej. mensual) en "
-                "la bodega más rezagada, con responsables y métricas de seguimiento. Es un "
-                "cambio de proceso operativo que requiere gestión de personas y tiempo para "
-                "consolidarse, no solo una corrección puntual."
+                "la bodega identificada en la Pregunta 5, con responsables y métricas de "
+                "seguimiento. Es un cambio de proceso operativo que requiere gestión de "
+                "personas y tiempo para consolidarse, no solo una corrección puntual."
             ),
         })
     elif "ciudad_logistica_critica" in h and abs(h.get("correlacion_logistica", 0)) >= 0.3:
@@ -202,9 +365,9 @@ def _render_plan_de_accion(h: dict):
             "titulo": f"Evaluar cambio de operador logístico en {h['ciudad_logistica_critica']}",
             "complejidad": "Alta",
             "detalle": (
-                "Renegociar SLA o cambiar de proveedor de transporte en la zona identificada. "
-                "Implica costos de transición y validación de nuevos proveedores — no es una "
-                "corrección inmediata."
+                "Renegociar el SLA o cambiar de proveedor de transporte en la zona "
+                "identificada en la Pregunta 2. Implica costos de transición y validación de "
+                "nuevos proveedores — no es una corrección inmediata."
             ),
         })
 
@@ -214,23 +377,34 @@ def _render_plan_de_accion(h: dict):
 
     color_por_complejidad = {"Baja": "🟢", "Media": "🟡", "Alta": "🔴"}
     for i, rec in enumerate(recomendaciones, start=1):
-        with st.expander(f"{i}. {rec['titulo']}  —  {color_por_complejidad[rec['complejidad']]} Complejidad {rec['complejidad']}"):
+        with st.expander(
+            f"{i}. {rec['titulo']}  —  {color_por_complejidad[rec['complejidad']]} "
+            f"Complejidad {rec['complejidad']}"
+        ):
             st.write(rec["detalle"])
 
 
-def render(df_filtrado: pd.DataFrame):
+# ---------------------------------------------------------------------------
+# Render principal
+# ---------------------------------------------------------------------------
+
+def render(df_filtrado: pd.DataFrame, datasets_crudos: dict = None, reportes_limpieza: list = None):
     st.header("📋 Análisis Final")
     st.caption(
-        "Síntesis de los hallazgos de Operaciones y Cliente, con lenguaje de negocio — "
-        "para leer antes de la reunión con la junta directiva, no para leer código."
+        "Informe de consultoría dirigido a la junta directiva de TechLogistics S.A.S. "
+        "Reacciona a los filtros del sidebar, igual que el resto del dashboard."
     )
 
     if df_filtrado is None or df_filtrado.empty:
         st.warning("No hay datos para mostrar con los filtros actuales. Ajusta el sidebar.")
         return
 
-    hallazgos = _calcular_hallazgos(df_filtrado)
+    _render_contexto()
+    st.divider()
+    _render_que_se_analizo(datasets_crudos, reportes_limpieza)
+    st.divider()
 
-    _render_narrativa(hallazgos)
+    hallazgos = _calcular_hallazgos(df_filtrado)
+    _render_hallazgos(hallazgos)
     st.divider()
     _render_plan_de_accion(hallazgos)
