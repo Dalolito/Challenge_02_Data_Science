@@ -7,11 +7,13 @@ Recibe el DataFrame maestro ya filtrado por el sidebar.
 import pandas as pd
 import streamlit as st
 
+from .ui_helpers import titulo_seccion, bar_chart_fijo, badge_inline, BADGE_INLINE_CSS, metric_box, render_html_block
+
 
 # Pregunta 4 — Paradoja stock alto / sentimiento negativo
 
 def _seccion_paradoja_stock(df: pd.DataFrame):
-    st.subheader("4. Diagnóstico de Fidelidad — Paradoja Stock Alto / Sentimiento Negativo")
+    titulo_seccion("4. Diagnóstico de Fidelidad — Paradoja Stock Alto / Sentimiento Negativo")
     st.caption(
         "¿Hay categorías con mucho stock disponible pero mala percepción del cliente? "
         "Eso apunta a un problema de calidad de producto, no de disponibilidad."
@@ -49,10 +51,10 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Stock promedio por categoría**")
-        st.bar_chart(resumen.set_index("Categoria")["Stock_Promedio"])
+        bar_chart_fijo(resumen.set_index("Categoria")["Stock_Promedio"])
     with c2:
         st.markdown("**NPS promedio por categoría**")
-        st.bar_chart(resumen.set_index("Categoria")["NPS_Promedio"])
+        bar_chart_fijo(resumen.set_index("Categoria")["NPS_Promedio"])
 
     categoria_mas_stock = resumen.loc[resumen["Stock_Promedio"].idxmax(), "Categoria"]
     categoria_peor_nps = resumen.loc[resumen["NPS_Promedio"].idxmin(), "Categoria"]
@@ -97,7 +99,7 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
 # Pregunta 5 — Antigüedad de revisión de stock vs tickets de soporte
 
 def _seccion_riesgo_operativo(df: pd.DataFrame):
-    st.subheader("5. Storytelling de Riesgo Operativo")
+    titulo_seccion("5. Storytelling de Riesgo Operativo")
     st.caption(
         "¿Las bodegas que llevan más tiempo sin revisar su inventario tienen más "
         "tickets de soporte? Eso indicaría que están 'operando a ciegas'."
@@ -131,10 +133,10 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Días promedio sin revisión de stock, por bodega**")
-        st.bar_chart(resumen.set_index("Bodega_Origen")["Dias_Sin_Revision_Promedio"])
+        bar_chart_fijo(resumen.set_index("Bodega_Origen")["Dias_Sin_Revision_Promedio"])
     with c2:
         st.markdown("**Tasa de tickets de soporte (%), por bodega**")
-        st.bar_chart(resumen.set_index("Bodega_Origen")["Tasa_Ticket_Soporte"])
+        bar_chart_fijo(resumen.set_index("Bodega_Origen")["Tasa_Ticket_Soporte"])
 
     bodega_mas_rezagada = resumen.iloc[0]["Bodega_Origen"]
     bodega_mas_tickets = resumen.loc[resumen["Tasa_Ticket_Soporte"].idxmax(), "Bodega_Origen"]
@@ -153,7 +155,8 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
     st.dataframe(resumen, width="stretch", hide_index=True)
 
     correlacion = resumen["Dias_Sin_Revision_Promedio"].corr(resumen["Tasa_Ticket_Soporte"])
-    st.metric("Correlación (días sin revisión ↔ tasa de tickets)", f"{correlacion:.2f}")
+    _, col_corr, _ = st.columns([1, 1, 1])
+    metric_box(col_corr, "Correlación (días sin revisión ↔ tasa de tickets)", f"{correlacion:.2f}")
 
     if pd.notna(correlacion) and correlacion > 0.3:
         bodega_critica = resumen.iloc[0]["Bodega_Origen"]
@@ -176,6 +179,25 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
 
 def render(df_filtrado: pd.DataFrame):
     st.header("😊 Cliente")
+
+    render_html_block(
+        BADGE_INLINE_CSS,
+        f"""
+        <div style="font-size:1rem; line-height:1.6;">
+        Esta pestaña responde las {badge_inline("2 últimas preguntas de alta gerencia")} del
+        reto, cruzando la voz del cliente (feedback) con datos operativos de inventario y
+        logística:
+        <ol style="margin-top:10px;">
+            <li>{badge_inline("Diagnóstico de Fidelidad:")} si hay categorías con stock alto
+                pero sentimiento de cliente negativo, y si eso apunta a un problema de calidad
+                de producto o de precio.</li>
+            <li>{badge_inline("Storytelling de Riesgo Operativo:")} si las bodegas que más
+                tiempo llevan sin revisar su inventario son también las que más tickets de
+                soporte generan.</li>
+        </ol>
+        </div>
+        """,
+    )
 
     if df_filtrado is None or df_filtrado.empty:
         st.warning("No hay datos para mostrar con los filtros actuales. Ajusta el sidebar.")

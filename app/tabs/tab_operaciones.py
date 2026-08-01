@@ -8,11 +8,13 @@ por src/feature_engineering.py.
 import pandas as pd
 import streamlit as st
 
+from .ui_helpers import titulo_seccion, bar_chart_fijo, badge_inline, BADGE_INLINE_CSS, metric_box, render_html_block, download_button_verde
+
 
 # Pregunta 1 — Fuga de capital y rentabilidad
 
 def _seccion_margenes(df: pd.DataFrame):
-    st.subheader("1. Fuga de Capital y Rentabilidad")
+    titulo_seccion("1. Fuga de Capital y Rentabilidad")
     st.caption(
         "SKUs que se están vendiendo con margen negativo — cada venta de estos "
         "productos le cuesta dinero a la empresa en vez de generarlo."
@@ -30,9 +32,10 @@ def _seccion_margenes(df: pd.DataFrame):
     perdida_total = df_negativo["Margen_Utilidad"].sum()  # ya es negativo
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Ventas con margen negativo", f"{n_negativo:,}", f"{pct_negativo:.1f}% del total")
-    c2.metric("Pérdida acumulada", f"${perdida_total:,.0f} USD")
-    c3.metric("Margen promedio general", f"${df_con_margen['Margen_Utilidad'].mean():,.2f} USD")
+    metric_box(c1, "Ventas con margen negativo", f"{n_negativo:,}",
+               delta=f"↑ {pct_negativo:.1f}% del total", delta_es_bueno=False)
+    metric_box(c2, "Pérdida acumulada", f"${perdida_total:,.0f} USD")
+    metric_box(c3, "Margen promedio general", f"${df_con_margen['Margen_Utilidad'].mean():,.2f} USD")
 
     if df_negativo.empty:
         st.success("No se encontraron ventas con margen negativo en el filtro actual.")
@@ -46,7 +49,7 @@ def _seccion_margenes(df: pd.DataFrame):
         .head(15)
     )
     st.markdown("**Top 15 SKU con mayor pérdida acumulada**")
-    st.bar_chart(top_sku_negativo["Perdida_Total"])
+    bar_chart_fijo(top_sku_negativo["Perdida_Total"])
 
     peor_sku = top_sku_negativo.index[0]
     peor_perdida = top_sku_negativo.iloc[0]["Perdida_Total"]
@@ -66,7 +69,7 @@ def _seccion_margenes(df: pd.DataFrame):
             .agg(Perdida_Total="sum", N_Ventas="count")
             .sort_values("Perdida_Total")
         )
-        st.bar_chart(por_canal["Perdida_Total"])
+        bar_chart_fijo(por_canal["Perdida_Total"])
 
         canal_peor = por_canal.index[0]
         st.markdown(
@@ -91,18 +94,19 @@ def _seccion_margenes(df: pd.DataFrame):
             .reset_index()
         )
         st.dataframe(tabla, width="stretch")
-        st.download_button(
-            "⬇️ Descargar tabla de márgenes negativos",
+        download_button_verde(
+            "Descargar tabla de márgenes negativos",
             data=tabla.to_csv(index=False).encode("utf-8-sig"),
             file_name="skus_margen_negativo.csv",
             mime="text/csv",
+            key="btn_descarga_margenes",
         )
 
 
 # Pregunta 2 — Crisis logística y cuellos de botella
 
 def _seccion_logistica(df: pd.DataFrame):
-    st.subheader("2. Crisis Logística y Cuellos de Botella")
+    titulo_seccion("2. Crisis Logística y Cuellos de Botella")
     st.caption(
         "¿En qué ciudades/bodegas la correlación entre Tiempo de Entrega y NPS bajo "
         "es más fuerte? Esa es la zona que necesita un cambio de operador."
@@ -122,11 +126,11 @@ def _seccion_logistica(df: pd.DataFrame):
     with c1:
         st.markdown("**Tiempo de entrega promedio por ciudad**")
         te_por_ciudad = df_validos.groupby("Ciudad_Destino")["Tiempo_Entrega_Real"].mean().sort_values(ascending=False)
-        st.bar_chart(te_por_ciudad)
+        bar_chart_fijo(te_por_ciudad)
     with c2:
         st.markdown("**NPS promedio por ciudad**")
         nps_por_ciudad = df_validos.groupby("Ciudad_Destino")["Satisfaccion_NPS"].mean().sort_values()
-        st.bar_chart(nps_por_ciudad)
+        bar_chart_fijo(nps_por_ciudad)
 
     ciudad_mas_lenta = te_por_ciudad.index[0]
     ciudad_peor_nps = nps_por_ciudad.index[0]
@@ -188,13 +192,13 @@ def _seccion_logistica(df: pd.DataFrame):
     if "Bodega_Origen" in df_validos.columns:
         with st.expander("Ver el mismo análisis por Bodega_Origen"):
             te_bodega = df_validos.groupby("Bodega_Origen")["Tiempo_Entrega_Real"].mean().sort_values(ascending=False)
-            st.bar_chart(te_bodega)
+            bar_chart_fijo(te_bodega)
 
 
 # Pregunta 3 — Venta invisible (SKU fantasma)
 
 def _seccion_sku_fantasma(df: pd.DataFrame):
-    st.subheader("3. Análisis de la Venta Invisible")
+    titulo_seccion("3. Análisis de la Venta Invisible")
     st.caption(
         "Ventas cuyo SKU no existe en el maestro de inventario — no se puede "
         "calcular su costo ni su margen real, así que representan un riesgo de "
@@ -214,10 +218,11 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
     pct_ingreso_riesgo = 100 * ingreso_fantasma / ingreso_total if ingreso_total else 0
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Ventas fantasma", f"{n_fantasma:,}", f"{pct_fantasma:.1f}% de las ventas")
-    c2.metric("SKUs distintos involucrados", f"{df.loc[df['SKU_Fantasma'], 'SKU_ID'].nunique():,}")
-    c3.metric("Ingreso en riesgo (USD)", f"${ingreso_fantasma:,.0f}")
-    c4.metric("% del ingreso total", f"{pct_ingreso_riesgo:.1f}%")
+    metric_box(c1, "Ventas fantasma", f"{n_fantasma:,}",
+               delta=f"↑ {pct_fantasma:.1f}% de las ventas", delta_es_bueno=False)
+    metric_box(c2, "SKUs distintos involucrados", f"{df.loc[df['SKU_Fantasma'], 'SKU_ID'].nunique():,}")
+    metric_box(c3, "Ingreso en riesgo (USD)", f"${ingreso_fantasma:,.0f}")
+    metric_box(c4, "% del ingreso total", f"{pct_ingreso_riesgo:.1f}%")
 
     if n_fantasma == 0:
         st.success("No hay ventas fantasma en el filtro actual.")
@@ -231,14 +236,14 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
         if "Canal_Venta" in df.columns:
             st.markdown("**Ventas fantasma por canal**")
             por_canal = df[df["SKU_Fantasma"]]["Canal_Venta"].value_counts()
-            st.bar_chart(por_canal)
+            bar_chart_fijo(por_canal)
             if not por_canal.empty:
                 canal_top = por_canal.index[0]
     with c2:
         if "Ciudad_Destino" in df.columns:
             st.markdown("**Ventas fantasma por ciudad**")
             por_ciudad = df[df["SKU_Fantasma"]]["Ciudad_Destino"].value_counts()
-            st.bar_chart(por_ciudad)
+            bar_chart_fijo(por_ciudad)
             if not por_ciudad.empty:
                 ciudad_top = por_ciudad.index[0]
 
@@ -259,11 +264,12 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
         ] if c in df.columns]
         tabla_fantasma = df.loc[df["SKU_Fantasma"], cols_mostrar]
         st.dataframe(tabla_fantasma, width="stretch")
-        st.download_button(
-            "⬇️ Descargar ventas fantasma",
+        download_button_verde(
+            "Descargar ventas fantasma",
             data=tabla_fantasma.to_csv(index=False).encode("utf-8-sig"),
             file_name="ventas_sku_fantasma.csv",
             mime="text/csv",
+            key="btn_descarga_fantasma",
         )
 
 
@@ -271,6 +277,26 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
 
 def render(df_filtrado: pd.DataFrame):
     st.header("📦 Operaciones")
+
+    render_html_block(
+        BADGE_INLINE_CSS,
+        f"""
+        <div style="font-size:1rem; line-height:1.6;">
+        Esta pestaña responde las {badge_inline("3 primeras preguntas de alta gerencia")} del
+        reto, todas con evidencia calculada directamente sobre el dataset maestro ya filtrado
+        en el sidebar:
+        <ol style="margin-top:10px;">
+            <li>{badge_inline("Fuga de Capital y Rentabilidad:")} qué SKUs se venden con margen
+                negativo y cuánto le está costando eso a la empresa.</li>
+            <li>{badge_inline("Crisis Logística y Cuellos de Botella:")} dónde la correlación
+                entre tiempo de entrega y NPS es más fuerte, para identificar la zona que
+                necesita un cambio de operador.</li>
+            <li>{badge_inline("Análisis de la Venta Invisible:")} el impacto financiero de las
+                ventas cuyo SKU no existe en el inventario (SKU Fantasma).</li>
+        </ol>
+        </div>
+        """,
+    )
 
     if df_filtrado is None or df_filtrado.empty:
         st.warning("No hay datos para mostrar con los filtros actuales. Ajusta el sidebar.")

@@ -16,52 +16,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from quality_metrics import resumen_calidad_completo
-
-
-def _titulo_seccion(texto: str):
-    """Renderiza un título de sección como badge azul claro y translúcido."""
-    st.markdown(
-        f"""
-        <div style="
-            background-color:rgba(96, 165, 250, 0.15);
-            border:1px solid rgba(96, 165, 250, 0.35);
-            display:inline-block;
-            padding:8px 18px;
-            border-radius:8px;
-            margin:18px 0 10px 0;
-        ">
-            <span style="color:#93c5fd; font-weight:700; font-size:1.7rem; text-decoration:none;">{texto}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _metric_box(col, etiqueta: str, valor: str, delta: str = None, delta_es_bueno: bool = True):
-    """Renderiza una métrica dentro de un cuadro amarillo claro y translúcido."""
-    delta_html = ""
-    if delta is not None:
-        color_delta = "#4ade80" if delta_es_bueno else "#f87171"
-        delta_html = (
-            f'<div style="color:{color_delta}; font-size:0.95rem; margin-top:4px;">{delta}</div>'
-        )
-    with col:
-        st.markdown(
-            f"""
-            <div style="
-                background-color:rgba(250, 220, 96, 0.15);
-                border:1px solid rgba(250, 220, 96, 0.35);
-                border-radius:8px;
-                padding:12px 18px;
-                margin-bottom:8px;
-            ">
-                <div style="color:#fde68a; font-size:0.9rem;">{etiqueta}</div>
-                <div style="color:#ffffff; font-weight:700; font-size:1.8rem;">{valor}</div>
-                {delta_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+from .ui_helpers import titulo_seccion as _titulo_seccion, metric_box as _metric_box, download_button_verde
 
 
 # Utilidades internas
@@ -378,29 +333,10 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
         "en los expanders de la sección 2, pero en un solo archivo para compartir con la junta."
     )
 
-    st.markdown(
-        """
-        <style>
-        div.st-key-btn_descarga_reporte button {
-            background-color: rgba(74, 222, 128, 0.25);
-            border: 1px solid rgba(74, 222, 128, 0.5);
-        }
-        div.st-key-btn_descarga_reporte button p {
-            color: #ffffff;
-            font-weight: 700;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
+    download_button_verde(
+        "Descargar reporte de limpieza (CSV)",
+        data=_descargar_reporte_csv(reportes),
+        file_name="reporte_limpieza.csv",
+        mime="text/csv",
+        key="btn_descarga_reporte",
     )
-
-    _, col_boton, _ = st.columns([1, 1, 1])
-    with col_boton:
-        st.download_button(
-            "Descargar reporte de limpieza (CSV)",
-            data=_descargar_reporte_csv(reportes),
-            file_name="reporte_limpieza.csv",
-            mime="text/csv",
-            width="stretch",
-            key="btn_descarga_reporte",
-        )
