@@ -80,7 +80,7 @@ def _seccion_margenes(df: pd.DataFrame):
             "específico frente a los demás."
         )
 
-    with st.expander("Ver tabla completa de SKUs con margen negativo"):
+    with st.expander("**Ver tabla completa de SKUs con margen negativo**"):
         tabla = (
             df_negativo.groupby("SKU_ID")
             .agg(
@@ -190,7 +190,7 @@ def _seccion_logistica(df: pd.DataFrame):
 
     # Mismo análisis por bodega (si está disponible)
     if "Bodega_Origen" in df_validos.columns:
-        with st.expander("Ver el mismo análisis por Bodega_Origen"):
+        with st.expander("**Ver el mismo análisis por Bodega_Origen**"):
             te_bodega = df_validos.groupby("Bodega_Origen")["Tiempo_Entrega_Real"].mean().sort_values(ascending=False)
             bar_chart_fijo(te_bodega)
 
@@ -257,7 +257,7 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
             "donde vale la pena revisar primero si el catálogo de productos está desactualizado."
         )
 
-    with st.expander(f"Ver los {n_fantasma:,} registros de venta fantasma"):
+    with st.expander(f"**Ver los {n_fantasma:,} registros de venta fantasma**"):
         cols_mostrar = [c for c in [
             "Transaccion_ID", "SKU_ID", "Fecha_Venta", "Cantidad_Vendida",
             "Precio_Venta_Final", "Canal_Venta", "Ciudad_Destino",

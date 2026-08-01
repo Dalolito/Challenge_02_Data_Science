@@ -2,10 +2,12 @@ streamlit
 pandas
 numpy
 openpyxl
+jinja2
 matplotlib
 seaborn
-jinja2
 plotly
+altair
+fpdf2
 groq
 jupyter
 ipykernel

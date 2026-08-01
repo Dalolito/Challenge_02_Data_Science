@@ -121,7 +121,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
         "o inconsistentes. Por eso se miden 4 dimensiones por separado."
     )
 
-    with st.expander("¿Qué mide cada dimensión?"):
+    with st.expander("**¿Qué mide cada dimensión?**"):
         st.markdown("""
 - **Completitud**: % de celdas que SÍ tienen un valor (lo contrario de nulos).
 - **Unicidad**: % de filas que NO son un duplicado exacto de otra.
@@ -306,13 +306,13 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
             hubo_flags = True
             n_marcados = int(df_ds[col_flag].sum())
             pct = 100 * n_marcados / len(df_ds) if len(df_ds) else 0
-            with st.expander(f"{nombres_bonitos.get(nombre_ds, nombre_ds)} — **{col_flag}**: "
-                              f"{n_marcados:,} registros ({pct:.1f}%) — {descripcion}"):
+            with st.expander(f"**{nombres_bonitos.get(nombre_ds, nombre_ds)} — {col_flag}: "
+                              f"{n_marcados:,} registros ({pct:.1f}%) — {descripcion}**"):
                 st.write(descripcion)
                 df_marcados = df_ds[df_ds[col_flag]]
                 st.dataframe(df_marcados.head(50), width='stretch')
-                st.download_button(
-                    f"⬇️ Descargar los {n_marcados:,} registros marcados",
+                download_button_verde(
+                    f"Descargar los {n_marcados:,} registros marcados",
                     data=df_marcados.to_csv(index=False).encode("utf-8-sig"),
                     file_name=f"{nombre_ds}_{col_flag}.csv",
                     mime="text/csv",

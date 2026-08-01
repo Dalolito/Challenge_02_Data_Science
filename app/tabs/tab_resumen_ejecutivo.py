@@ -5,6 +5,9 @@ Estructura: 1) Contexto del encargo, 2) Qué se analizó, 3) Qué se identificó
 Recibe el dataset maestro filtrado y los reportes de limpieza (no recalcula nada).
 """
 
+import os
+import tempfile
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -12,6 +15,8 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+from .ui_helpers import titulo_seccion, download_button_verde
 
 # Variables numéricas para la matriz de correlación (elegidas a mano para que
 # el heatmap sea legible). Brecha_Entrega se excluye: al ser Tiempo_Entrega_Real
@@ -102,7 +107,7 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
 # 1. Contexto del encargo
 
 def _render_contexto():
-    st.subheader("1. Contexto del encargo")
+    titulo_seccion("1. Contexto del encargo")
     st.markdown(
         "**TechLogistics S.A.S.** nos contrató como consultores porque detectó dos síntomas "
         "preocupantes en su operación: una **erosión sostenida del margen de beneficios** y "
@@ -117,7 +122,7 @@ def _render_contexto():
 # 2. Qué se analizó
 
 def _render_que_se_analizo(datasets_crudos: dict, reportes_limpieza: list, df_filtrado: pd.DataFrame = None):
-    st.subheader("2. Qué se analizó")
+    titulo_seccion("2. Qué se analizó")
 
     if not datasets_crudos or not reportes_limpieza:
         st.info("No hay información de los datos crudos disponible para esta sección.")
@@ -188,16 +193,17 @@ def _render_matriz_correlacion(df: pd.DataFrame):
 
     corr = df[disponibles].corr(numeric_only=True)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(5.5, 4.2))
     sns.heatmap(
         corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0,
         vmin=-1, vmax=1, square=True, linewidths=0.5,
-        annot_kws={"size": 8}, ax=ax, cbar_kws={"shrink": 0.8},
+        annot_kws={"size": 6.5}, ax=ax, cbar_kws={"shrink": 0.8},
     )
-    ax.set_title("Correlación entre variables numéricas de negocio")
-    plt.xticks(rotation=45, ha="right")
+    ax.set_title("Correlación entre variables numéricas de negocio", fontsize=10)
+    plt.xticks(rotation=45, ha="right", fontsize=7)
+    plt.yticks(fontsize=7)
     plt.tight_layout()
-    st.pyplot(fig)
+    st.pyplot(fig, width="content")
     plt.close(fig)
 
     mascara_diagonal = pd.DataFrame(
@@ -221,7 +227,7 @@ def _render_matriz_correlacion(df: pd.DataFrame):
 # 3. Qué se identificó — anclado a las 5 preguntas oficiales del reto
 
 def _render_hallazgos(h: dict):
-    st.subheader("3. Qué se identificó")
+    titulo_seccion("3. Qué se identificó")
     st.caption(
         "Cada hallazgo responde directamente una de las 5 preguntas estratégicas que la "
         "junta directiva planteó al inicio del encargo."
@@ -354,13 +360,9 @@ def _render_hallazgos(h: dict):
 
 # 4. Plan de Acción
 
-def _render_plan_de_accion(h: dict):
-    st.subheader("4. Plan de Acción Recomendado")
-    st.caption(
-        "Una recomendación por cada pregunta estratégica, con objetivo, pasos concretos, "
-        "responsable sugerido, plazo e impacto esperado — no solo el titular del hallazgo."
-    )
-
+def _construir_recomendaciones(h: dict) -> list:
+    """Arma la lista de recomendaciones a partir de los hallazgos. Separado del
+    renderizado para poder reusar exactamente el mismo contenido en el PDF."""
     recomendaciones = []
 
     # Recomendación — Pregunta 1 (márgenes)
@@ -570,11 +572,23 @@ def _render_plan_de_accion(h: dict):
             ],
         })
 
+    return recomendaciones
+
+
+def _render_plan_de_accion(h: dict):
+    titulo_seccion("4. Plan de Acción Recomendado")
+    st.caption(
+        "Una recomendación por cada pregunta estratégica, con objetivo, pasos concretos, "
+        "responsable sugerido, plazo e impacto esperado — no solo el titular del hallazgo."
+    )
+
+    recomendaciones = _construir_recomendaciones(h)
+
     color_por_complejidad = {"Baja": "🟢", "Media": "🟡", "Alta": "🔴"}
     for i, rec in enumerate(recomendaciones, start=1):
         with st.expander(
-            f"{i}. {rec['titulo']}  —  {color_por_complejidad[rec['complejidad']]} "
-            f"Complejidad {rec['complejidad']}  ·  {rec['pregunta']}"
+            f"**{i}. {rec['titulo']}  —  {color_por_complejidad[rec['complejidad']]} "
+            f"Complejidad {rec['complejidad']}  ·  {rec['pregunta']}**"
         ):
             st.markdown(f"**Objetivo:** {rec['objetivo']}")
             st.markdown(f"**Responsable sugerido:** {rec['responsable']}  |  **Plazo:** {rec['plazo']}")
@@ -582,6 +596,188 @@ def _render_plan_de_accion(h: dict):
             st.markdown("**Pasos concretos:**")
             for paso in rec["pasos"]:
                 st.markdown(f"- {paso}")
+
+
+# Generación del informe en PDF
+
+def _limpiar_texto_pdf(texto: str) -> str:
+    """Prepara texto para las fuentes core de fpdf2 (codificación Latin-1):
+    quita markdown (**negrilla**), normaliza guiones/comillas especiales y
+    descarta cualquier carácter que Latin-1 no pueda representar (emojis)."""
+    texto = texto.replace("**", "").replace("*", "")
+    texto = texto.replace("—", "-").replace("–", "-")
+    texto = texto.replace("“", '"').replace("”", '"').replace("’", "'")
+    return texto.encode("latin-1", errors="ignore").decode("latin-1")
+
+
+def _generar_pdf_informe(
+    df_filtrado: pd.DataFrame, datasets_crudos: dict, reportes_limpieza: list, h: dict,
+) -> bytes:
+    """Arma un PDF ejecutivo con el mismo contenido de esta pestaña: contexto,
+    qué se analizó (con el heatmap), los 5 hallazgos y el plan de acción."""
+    from fpdf import FPDF
+
+    pdf = FPDF(format="A4", unit="mm")
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    def titulo_principal(txt):
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.multi_cell(0, 9, _limpiar_texto_pdf(txt), align="C")
+        pdf.set_x(pdf.l_margin)
+
+    def seccion(txt):
+        pdf.ln(3)
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_text_color(37, 99, 235)
+        pdf.multi_cell(0, 8, _limpiar_texto_pdf(txt))
+        pdf.set_x(pdf.l_margin)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(1)
+
+    def subtitulo(txt):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "B", 10.5)
+        pdf.multi_cell(0, 6, _limpiar_texto_pdf(txt))
+        pdf.set_x(pdf.l_margin)
+
+    def parrafo(txt):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 5.5, _limpiar_texto_pdf(txt))
+        pdf.set_x(pdf.l_margin)
+        pdf.ln(1)
+
+    def bullet(txt):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 5.5, _limpiar_texto_pdf(f"- {txt}"))
+        pdf.set_x(pdf.l_margin)
+
+    titulo_principal("TechLogistics S.A. - Informe de Consultoria")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(0, 5, _limpiar_texto_pdf(
+        f"Generado sobre {len(df_filtrado):,} transacciones filtradas | "
+        "Dirigido a la junta directiva de TechLogistics S.A.S."
+    ), align="C")
+    pdf.set_x(pdf.l_margin)
+    pdf.set_text_color(0, 0, 0)
+
+    # 1. Contexto
+    seccion("1. Contexto del encargo")
+    parrafo(
+        "TechLogistics S.A.S. nos contrató como consultores porque detectó dos síntomas "
+        "preocupantes en su operación: una erosión sostenida del margen de beneficios y "
+        "una caída drástica en la lealtad de sus clientes. La hipótesis inicial de la "
+        "junta directiva era que la causa raíz está en la invisibilidad operativa: sus "
+        "tres sistemas principales -ERP de Inventarios, Logística y Feedback de "
+        "clientes- no hablan el mismo idioma entre sí. Nuestro trabajo fue confirmar o "
+        "descartar esa hipótesis con evidencia, y traducir el hallazgo en un plan de "
+        "acción concreto."
+    )
+
+    # 2. Qué se analizó
+    seccion("2. Qué se analizó")
+    if datasets_crudos and reportes_limpieza:
+        n_inv = len(datasets_crudos.get("inventario", []))
+        n_trx = len(datasets_crudos.get("transacciones", []))
+        n_fb = len(datasets_crudos.get("feedback", []))
+        total_correcciones = sum(len(rep.get("cambios", [])) for rep in reportes_limpieza)
+        parrafo(
+            f"Se recibieron 3 fuentes de datos independientes que sumaban "
+            f"{n_inv + n_trx + n_fb:,} registros: el maestro de inventario ({n_inv:,} "
+            f"productos), el histórico de transacciones logísticas ({n_trx:,} ventas), y "
+            f"el feedback de clientes ({n_fb:,} respuestas). Se aplicaron "
+            f"{total_correcciones} correcciones documentadas durante la limpieza (detalle "
+            "completo en la pestaña Auditoría del dashboard)."
+        )
+
+    disponibles = [c for c in VARS_CORRELACION if c in df_filtrado.columns]
+    if len(disponibles) >= 2:
+        corr = df_filtrado[disponibles].corr(numeric_only=True)
+        fig, ax = plt.subplots(figsize=(6, 4.6))
+        sns.heatmap(
+            corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0,
+            vmin=-1, vmax=1, square=True, linewidths=0.5,
+            annot_kws={"size": 6}, ax=ax, cbar_kws={"shrink": 0.8},
+        )
+        ax.set_title("Correlación entre variables numéricas de negocio", fontsize=9)
+        plt.xticks(rotation=45, ha="right", fontsize=6)
+        plt.yticks(fontsize=6)
+        plt.tight_layout()
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_img:
+            fig.savefig(tmp_img.name, dpi=170, bbox_inches="tight")
+            ruta_imagen = tmp_img.name
+        plt.close(fig)
+
+        pdf.ln(1)
+        pdf.image(ruta_imagen, w=140, x=(210 - 140) / 2)
+        os.remove(ruta_imagen)
+        pdf.set_x(pdf.l_margin)
+        pdf.ln(2)
+
+    # 3. Qué se identificó (5 hallazgos, versión condensada)
+    seccion("3. Qué se identificó")
+    preguntas_hallazgos = [
+        ("Pregunta 1 - Fuga de Capital y Rentabilidad",
+         f"{h['n_margen_negativo']:,} transacciones ({h['pct_margen_negativo']:.1f}%) se "
+         f"ejecutaron con margen negativo, acumulando una pérdida de "
+         f"${abs(h['perdida_total']):,.0f} USD."
+         + (f" El canal {h['canal_peor_margen']} concentra la mayor parte de esa pérdida."
+            if "canal_peor_margen" in h else "")
+         if "n_margen_negativo" in h else
+         "No hay datos suficientes en el filtro actual para responder esta pregunta."),
+        ("Pregunta 2 - Crisis Logística y Cuellos de Botella",
+         (f"{h['ciudad_logistica_critica']} presenta la correlación más negativa del país "
+          f"({h['correlacion_logistica']:.2f}) entre tiempo de entrega y NPS."
+          if "ciudad_logistica_critica" in h and abs(h.get("correlacion_logistica", 0)) >= 0.3 else
+          "La relación entre tiempo de entrega y NPS es débil en el filtro actual - la "
+          "logística no aparece como el principal motor de insatisfacción."
+          if "ciudad_logistica_critica" in h else
+          "No hay datos suficientes en el filtro actual para responder esta pregunta.")),
+        ("Pregunta 3 - Análisis de la Venta Invisible",
+         f"{h['n_fantasma']:,} ventas ({h['pct_fantasma']:.1f}%) corresponden a SKU fuera "
+         f"del catálogo oficial, representando ${h['ingreso_riesgo']:,.0f} USD "
+         f"({h['pct_ingreso_riesgo']:.1f}% del ingreso total) sin trazabilidad de costo."
+         if "n_fantasma" in h else
+         "No hay datos suficientes en el filtro actual para responder esta pregunta."),
+        ("Pregunta 4 - Diagnóstico de Fidelidad",
+         f"{', '.join(h['categorias_paradoja'])} combina alta disponibilidad de stock con "
+         "bajo NPS - señal de un problema de calidad o precio, no de inventario."
+         if "categorias_paradoja" in h else
+         "No se detectó ninguna categoría en paradoja con el filtro actual."),
+        ("Pregunta 5 - Storytelling de Riesgo Operativo",
+         (f"{h['bodega_critica']} es la bodega más rezagada en revisión de stock, con una "
+          f"correlación notable ({h.get('correlacion_logistica_bodega', 0):.2f}) frente a "
+          "su tasa de tickets de soporte."
+          if "bodega_critica" in h and pd.notna(h.get("correlacion_logistica_bodega"))
+          and h["correlacion_logistica_bodega"] > 0.3 else
+          "No se encontró una correlación fuerte entre antigüedad de revisión y tickets "
+          "de soporte en el filtro actual."
+          if "bodega_critica" in h else
+          "No hay datos suficientes en el filtro actual para responder esta pregunta.")),
+    ]
+    for titulo_p, texto_p in preguntas_hallazgos:
+        subtitulo(titulo_p)
+        parrafo(texto_p)
+
+    # 4. Plan de acción
+    seccion("4. Plan de acción recomendado")
+    for i, rec in enumerate(_construir_recomendaciones(h), start=1):
+        subtitulo(f"{i}. {rec['titulo']}  (Complejidad {rec['complejidad']})")
+        parrafo(f"Objetivo: {rec['objetivo']}")
+        parrafo(
+            f"Responsable: {rec['responsable']}  |  Plazo: {rec['plazo']}  |  "
+            f"Impacto esperado: {rec['impacto_esperado']}"
+        )
+        for paso in rec["pasos"]:
+            bullet(paso)
+        pdf.ln(2)
+
+    return bytes(pdf.output())
 
 
 # Render principal
@@ -606,3 +802,13 @@ def render(df_filtrado: pd.DataFrame, datasets_crudos: dict = None, reportes_lim
     _render_hallazgos(hallazgos)
     st.divider()
     _render_plan_de_accion(hallazgos)
+
+    st.divider()
+    pdf_bytes = _generar_pdf_informe(df_filtrado, datasets_crudos, reportes_limpieza, hallazgos)
+    download_button_verde(
+        "Descargar análisis completo (PDF)",
+        data=pdf_bytes,
+        file_name="informe_techlogistics.pdf",
+        mime="application/pdf",
+        key="btn_descarga_pdf_informe",
+    )

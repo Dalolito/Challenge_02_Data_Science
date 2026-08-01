@@ -11,6 +11,8 @@ import streamlit as st
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from ai_insights import build_summary_stats, get_ai_recommendation
 
+from .ui_helpers import titulo_seccion
+
 
 def render(df_filtrado):
     st.header("🤖 Insights de IA")
@@ -25,7 +27,7 @@ def render(df_filtrado):
 
     resumen = build_summary_stats(df_filtrado)
 
-    with st.expander("Ver el resumen estadístico que se le enviaría al modelo"):
+    with st.expander("**Ver el resumen estadístico que se le enviaría al modelo**"):
         st.json(resumen)
 
     # .get() lanza error si secrets.toml no existe, por eso el try/except
@@ -42,11 +44,33 @@ def render(df_filtrado):
         )
         return
 
-    if st.button("✨ Generar recomendación estratégica", type="primary"):
+    st.markdown(
+        """
+        <style>
+        div.st-key-btn_generar_recomendacion button {
+            background-color: rgba(248, 113, 113, 0.25);
+            border: 1px solid rgba(248, 113, 113, 0.5);
+        }
+        div.st-key-btn_generar_recomendacion button p {
+            color: #ffffff;
+            font-weight: 700;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    _, col_boton, _ = st.columns([1, 1, 1])
+    with col_boton:
+        generar = st.button(
+            "Generar recomendación estratégica",
+            width="stretch", key="btn_generar_recomendacion",
+        )
+
+    if generar:
         with st.spinner("Consultando a Llama-3..."):
             try:
                 recomendacion = get_ai_recommendation(resumen, api_key)
-                st.markdown("### Recomendación")
+                titulo_seccion("Recomendación")
                 st.markdown(recomendacion)
                 st.caption(
                     f"Generado sobre {resumen.get('n_transacciones', 0):,} transacciones "
