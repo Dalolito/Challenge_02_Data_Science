@@ -1,10 +1,3 @@
-"""
-Punto de entrada de la app Streamlit: orquesta la carga/limpieza (src/),
-los filtros globales del sidebar y las 4 pestañas. Sin lógica de negocio.
-
-Ejecutar con: streamlit run app/app.py (desde la raíz del repo)
-"""
-
 import os
 import sys
 

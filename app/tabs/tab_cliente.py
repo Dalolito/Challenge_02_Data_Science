@@ -51,10 +51,10 @@ def _seccion_paradoja_stock(df: pd.DataFrame):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Stock promedio por categoría**")
-        bar_chart_fijo(resumen.set_index("Categoria")["Stock_Promedio"])
+        bar_chart_fijo(resumen.set_index("Categoria")["Stock_Promedio"], guardar="cliente_stock_por_categoria")
     with c2:
         st.markdown("**NPS promedio por categoría**")
-        bar_chart_fijo(resumen.set_index("Categoria")["NPS_Promedio"])
+        bar_chart_fijo(resumen.set_index("Categoria")["NPS_Promedio"], guardar="cliente_nps_por_categoria")
 
     categoria_mas_stock = resumen.loc[resumen["Stock_Promedio"].idxmax(), "Categoria"]
     categoria_peor_nps = resumen.loc[resumen["NPS_Promedio"].idxmin(), "Categoria"]
@@ -133,10 +133,10 @@ def _seccion_riesgo_operativo(df: pd.DataFrame):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Días promedio sin revisión de stock, por bodega**")
-        bar_chart_fijo(resumen.set_index("Bodega_Origen")["Dias_Sin_Revision_Promedio"])
+        bar_chart_fijo(resumen.set_index("Bodega_Origen")["Dias_Sin_Revision_Promedio"], guardar="cliente_dias_sin_revision_por_bodega")
     with c2:
         st.markdown("**Tasa de tickets de soporte (%), por bodega**")
-        bar_chart_fijo(resumen.set_index("Bodega_Origen")["Tasa_Ticket_Soporte"])
+        bar_chart_fijo(resumen.set_index("Bodega_Origen")["Tasa_Ticket_Soporte"], guardar="cliente_tasa_ticket_por_bodega")
 
     bodega_mas_rezagada = resumen.iloc[0]["Bodega_Origen"]
     bodega_mas_tickets = resumen.loc[resumen["Tasa_Ticket_Soporte"].idxmax(), "Bodega_Origen"]

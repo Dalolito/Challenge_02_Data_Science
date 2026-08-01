@@ -1,9 +1,3 @@
-"""
-Integración con Groq (Llama-3) para generar recomendaciones estratégicas
-a partir del resumen estadístico de los datos filtrados (Fase 3).
-La API key se lee de st.secrets["GROQ_API_KEY"], nunca se hardcodea.
-"""
-
 import pandas as pd
 
 

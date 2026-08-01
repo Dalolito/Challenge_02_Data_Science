@@ -1,14 +1,8 @@
-"""
-Pestaña "Operaciones": responde las Preguntas 1, 2 y 3 del reto
-(margen negativo, correlación tiempo de entrega vs NPS, venta invisible).
-Recibe el DataFrame maestro ya filtrado; las columnas vienen calculadas
-por src/feature_engineering.py.
-"""
-
+import altair as alt
 import pandas as pd
 import streamlit as st
 
-from .ui_helpers import titulo_seccion, bar_chart_fijo, badge_inline, BADGE_INLINE_CSS, metric_box, render_html_block, download_button_verde
+from .ui_helpers import titulo_seccion, bar_chart_fijo, badge_inline, BADGE_INLINE_CSS, metric_box, render_html_block, download_button_verde, guardar_altair
 
 
 # Pregunta 1 — Fuga de capital y rentabilidad
@@ -34,8 +28,8 @@ def _seccion_margenes(df: pd.DataFrame):
     c1, c2, c3 = st.columns(3)
     metric_box(c1, "Ventas con margen negativo", f"{n_negativo:,}",
                delta=f"↑ {pct_negativo:.1f}% del total", delta_es_bueno=False)
-    metric_box(c2, "Pérdida acumulada", f"${perdida_total:,.0f} USD")
-    metric_box(c3, "Margen promedio general", f"${df_con_margen['Margen_Utilidad'].mean():,.2f} USD")
+    metric_box(c2, "Pérdida acumulada", f"{perdida_total:,.0f} USD")
+    metric_box(c3, "Margen promedio general", f"{df_con_margen['Margen_Utilidad'].mean():,.2f} USD")
 
     if df_negativo.empty:
         st.success("No se encontraron ventas con margen negativo en el filtro actual.")
@@ -49,14 +43,14 @@ def _seccion_margenes(df: pd.DataFrame):
         .head(15)
     )
     st.markdown("**Top 15 SKU con mayor pérdida acumulada**")
-    bar_chart_fijo(top_sku_negativo["Perdida_Total"])
+    bar_chart_fijo(top_sku_negativo["Perdida_Total"], guardar="operaciones_top15_sku_margen_negativo")
 
     peor_sku = top_sku_negativo.index[0]
     peor_perdida = top_sku_negativo.iloc[0]["Perdida_Total"]
     st.markdown(
         f"De la gráfica anterior observamos que el SKU **{peor_sku}** concentra la mayor "
-        f"pérdida individual, con **${abs(peor_perdida):,.0f} USD** acumulados en negativo. "
-        f"Entre los 15 SKU más problemáticos suman **${abs(top_sku_negativo['Perdida_Total'].sum()):,.0f} USD** "
+        f"pérdida individual, con **{abs(peor_perdida):,.0f} USD** acumulados en negativo. "
+        f"Entre los 15 SKU más problemáticos suman **{abs(top_sku_negativo['Perdida_Total'].sum()):,.0f} USD** "
         "de pérdida — no es un caso aislado, es un grupo de productos que la empresa debería "
         "revisar de precio o descatalogar."
     )
@@ -69,16 +63,55 @@ def _seccion_margenes(df: pd.DataFrame):
             .agg(Perdida_Total="sum", N_Ventas="count")
             .sort_values("Perdida_Total")
         )
-        bar_chart_fijo(por_canal["Perdida_Total"])
+        pastel_canal = por_canal.reset_index()
+        pastel_canal["Perdida_Abs"] = pastel_canal["Perdida_Total"].abs()
+        pastel_canal["Pct"] = 100 * pastel_canal["Perdida_Abs"] / pastel_canal["Perdida_Abs"].sum()
+
+        grafico_pastel = (
+            alt.Chart(pastel_canal)
+            .mark_arc(innerRadius=0)
+            .encode(
+                theta=alt.Theta("Perdida_Abs:Q", stack=True),
+                color=alt.Color("Canal_Venta:N", title="Canal",
+                                 scale=alt.Scale(scheme="blues")),
+                tooltip=["Canal_Venta", alt.Tooltip("Perdida_Abs:Q", title="Pérdida (USD)", format=",.0f"),
+                         alt.Tooltip("Pct:Q", title="% del total", format=".1f")],
+            )
+            .properties(height=350, width=350)
+        )
+        texto_pastel = (
+            alt.Chart(pastel_canal)
+            .mark_text(radius=140, size=13, color="white", fontWeight="bold")
+            .encode(
+                theta=alt.Theta("Perdida_Abs:Q", stack=True),
+                text=alt.Text("Pct:Q", format=".1f"),
+            )
+        )
+        st.altair_chart(grafico_pastel + texto_pastel, width="content")
+        guardar_altair(grafico_pastel + texto_pastel, "operaciones_perdida_por_canal")
 
         canal_peor = por_canal.index[0]
-        st.markdown(
-            f"De la gráfica anterior observamos que el canal **{canal_peor}** es donde más se "
-            f"concentra la pérdida (${abs(por_canal.iloc[0]['Perdida_Total']):,.0f} USD en "
-            f"{int(por_canal.iloc[0]['N_Ventas']):,} ventas). Esto sugiere que el problema no es "
-            "solo de producto, sino también de cómo se está fijando el precio en ese canal "
-            "específico frente a los demás."
-        )
+        pct_min = pastel_canal["Pct"].min()
+        pct_max = pastel_canal["Pct"].max()
+
+        if (pct_max - pct_min) <= 10:
+            st.markdown(
+                f"Aunque el canal **{canal_peor}** concentra técnicamente la mayor pérdida "
+                f"({abs(por_canal.iloc[0]['Perdida_Total']):,.0f} USD en "
+                f"{int(por_canal.iloc[0]['N_Ventas']):,} ventas), la diferencia con los demás "
+                f"canales es mínima — todos se mueven entre {pct_min:.1f}% y {pct_max:.1f}% de "
+                "la pérdida total. Esto indica que **el canal no es el problema real**: es un "
+                "problema de pricing sistemático que afecta a todos por igual, no una falla "
+                "puntual concentrada en uno solo."
+            )
+        else:
+            st.markdown(
+                f"De la gráfica anterior observamos que el canal **{canal_peor}** es donde más se "
+                f"concentra la pérdida ({abs(por_canal.iloc[0]['Perdida_Total']):,.0f} USD en "
+                f"{int(por_canal.iloc[0]['N_Ventas']):,} ventas). Esto sugiere que el problema no es "
+                "solo de producto, sino también de cómo se está fijando el precio en ese canal "
+                "específico frente a los demás."
+            )
 
     with st.expander("**Ver tabla completa de SKUs con margen negativo**"):
         tabla = (
@@ -126,11 +159,11 @@ def _seccion_logistica(df: pd.DataFrame):
     with c1:
         st.markdown("**Tiempo de entrega promedio por ciudad**")
         te_por_ciudad = df_validos.groupby("Ciudad_Destino")["Tiempo_Entrega_Real"].mean().sort_values(ascending=False)
-        bar_chart_fijo(te_por_ciudad)
+        bar_chart_fijo(te_por_ciudad, guardar="operaciones_tiempo_entrega_por_ciudad")
     with c2:
         st.markdown("**NPS promedio por ciudad**")
         nps_por_ciudad = df_validos.groupby("Ciudad_Destino")["Satisfaccion_NPS"].mean().sort_values()
-        bar_chart_fijo(nps_por_ciudad)
+        bar_chart_fijo(nps_por_ciudad, guardar="operaciones_nps_por_ciudad")
 
     ciudad_mas_lenta = te_por_ciudad.index[0]
     ciudad_peor_nps = nps_por_ciudad.index[0]
@@ -192,7 +225,7 @@ def _seccion_logistica(df: pd.DataFrame):
     if "Bodega_Origen" in df_validos.columns:
         with st.expander("**Ver el mismo análisis por Bodega_Origen**"):
             te_bodega = df_validos.groupby("Bodega_Origen")["Tiempo_Entrega_Real"].mean().sort_values(ascending=False)
-            bar_chart_fijo(te_bodega)
+            bar_chart_fijo(te_bodega, guardar="operaciones_tiempo_entrega_por_bodega")
 
 
 # Pregunta 3 — Venta invisible (SKU fantasma)
@@ -221,7 +254,7 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
     metric_box(c1, "Ventas fantasma", f"{n_fantasma:,}",
                delta=f"↑ {pct_fantasma:.1f}% de las ventas", delta_es_bueno=False)
     metric_box(c2, "SKUs distintos involucrados", f"{df.loc[df['SKU_Fantasma'], 'SKU_ID'].nunique():,}")
-    metric_box(c3, "Ingreso en riesgo (USD)", f"${ingreso_fantasma:,.0f}")
+    metric_box(c3, "Ingreso en riesgo (USD)", f"{ingreso_fantasma:,.0f}")
     metric_box(c4, "% del ingreso total", f"{pct_ingreso_riesgo:.1f}%")
 
     if n_fantasma == 0:
@@ -230,31 +263,47 @@ def _seccion_sku_fantasma(df: pd.DataFrame):
 
     # ¿Se concentra en ciudades o canales específicos?
     c1, c2 = st.columns(2)
-    canal_top = None
-    ciudad_top = None
+    canal_top, canal_segundo = None, None
+    ciudad_top, ciudad_segundo = None, None
     with c1:
         if "Canal_Venta" in df.columns:
             st.markdown("**Ventas fantasma por canal**")
             por_canal = df[df["SKU_Fantasma"]]["Canal_Venta"].value_counts()
-            bar_chart_fijo(por_canal)
+            bar_chart_fijo(por_canal, guardar="operaciones_ventas_fantasma_por_canal")
             if not por_canal.empty:
                 canal_top = por_canal.index[0]
+                if len(por_canal) >= 2 and (por_canal.iloc[0] - por_canal.iloc[1]) / por_canal.iloc[0] <= 0.15:
+                    canal_segundo = por_canal.index[1]
     with c2:
         if "Ciudad_Destino" in df.columns:
             st.markdown("**Ventas fantasma por ciudad**")
             por_ciudad = df[df["SKU_Fantasma"]]["Ciudad_Destino"].value_counts()
-            bar_chart_fijo(por_ciudad)
+            bar_chart_fijo(por_ciudad, guardar="operaciones_ventas_fantasma_por_ciudad")
             if not por_ciudad.empty:
                 ciudad_top = por_ciudad.index[0]
+                if len(por_ciudad) >= 2 and (por_ciudad.iloc[0] - por_ciudad.iloc[1]) / por_ciudad.iloc[0] <= 0.15:
+                    ciudad_segundo = por_ciudad.index[1]
 
     if canal_top is not None:
+        canal_txt = (
+            f"el canal **{canal_top}** concentra la mayor cantidad de ventas fantasma "
+            f"(muy cerca de **{canal_segundo}**, prácticamente empatados)"
+            if canal_segundo else
+            f"el canal **{canal_top}** concentra la mayor cantidad de ventas fantasma"
+        )
+        ciudad_txt = ""
+        if ciudad_top:
+            ciudad_txt = (
+                f", y **{ciudad_top}** y **{ciudad_segundo}** son las ciudades con más "
+                "casos, prácticamente empatadas"
+                if ciudad_segundo else
+                f", y **{ciudad_top}** la mayor cantidad por ciudad"
+            )
         st.markdown(
-            f"De las gráficas anteriores observamos que el canal **{canal_top}** concentra la "
-            f"mayor cantidad de ventas fantasma"
-            + (f", y **{ciudad_top}** la mayor cantidad por ciudad" if ciudad_top else "")
-            + ". Esto apunta a que el problema no está distribuido al azar en todo el negocio, "
-            "sino asociado a un punto específico del proceso de venta — probablemente ahí es "
-            "donde vale la pena revisar primero si el catálogo de productos está desactualizado."
+            f"De las gráficas anteriores observamos que {canal_txt}{ciudad_txt}. Esto apunta "
+            "a que el problema no está distribuido al azar en todo el negocio, sino asociado "
+            "a un punto específico del proceso de venta — probablemente ahí es donde vale la "
+            "pena revisar primero si el catálogo de productos está desactualizado."
         )
 
     with st.expander(f"**Ver los {n_fantasma:,} registros de venta fantasma**"):

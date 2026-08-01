@@ -1,10 +1,3 @@
-"""
-Pestaña "Análisis Final": informe de consultoría para la junta directiva.
-Estructura: 1) Contexto del encargo, 2) Qué se analizó, 3) Qué se identificó
-(anclado a las 5 preguntas del reto), 4) Plan de Acción.
-Recibe el dataset maestro filtrado y los reportes de limpieza (no recalcula nada).
-"""
-
 import os
 import tempfile
 
@@ -16,11 +9,10 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from .ui_helpers import titulo_seccion, download_button_verde
+from .ui_helpers import titulo_seccion, download_button_verde, guardar_matplotlib
 
-# Variables numéricas para la matriz de correlación (elegidas a mano para que
-# el heatmap sea legible). Brecha_Entrega se excluye: al ser Tiempo_Entrega_Real
-# menos una constante, su correlación con ella es 1.00 y no aporta información.
+# Brecha_Entrega se excluye: es Tiempo_Entrega_Real menos una constante,
+# su correlación con ella siempre es 1.00 y no aporta información.
 VARS_CORRELACION = [
     "Margen_Utilidad", "Precio_Venta_Final", "Costo_Envio", "Tiempo_Entrega_Real",
     "Stock_Actual", "Costo_Unitario_USD", "Rating_Producto", "Rating_Logistica",
@@ -204,6 +196,7 @@ def _render_matriz_correlacion(df: pd.DataFrame):
     plt.yticks(fontsize=7)
     plt.tight_layout()
     st.pyplot(fig, width="content")
+    guardar_matplotlib(fig, "resumen_correlacion_variables_negocio")
     plt.close(fig)
 
     mascara_diagonal = pd.DataFrame(
@@ -244,12 +237,12 @@ def _render_hallazgos(h: dict):
                 f"Analizamos el margen de utilidad de cada venta y encontramos que "
                 f"**{h['n_margen_negativo']:,} transacciones ({h['pct_margen_negativo']:.1f}%)** "
                 f"se ejecutaron con margen negativo, acumulando una pérdida de "
-                f"**${abs(h['perdida_total']):,.0f} USD**."
+                f"**{abs(h['perdida_total']):,.0f} USD**."
             )
             if "canal_peor_margen" in h:
                 texto += (
                     f" El canal **{h['canal_peor_margen']}** concentra la mayor parte de esa "
-                    f"pérdida (${abs(h['perdida_canal_peor']):,.0f} USD), lo que indica que "
+                    f"pérdida ({abs(h['perdida_canal_peor']):,.0f} USD), lo que indica que "
                     "no es un problema de volumen aislado en unos pocos productos, sino una "
                     "**falla sistemática de precios en un canal específico**."
                 )
@@ -296,7 +289,7 @@ def _render_hallazgos(h: dict):
                 f"Cruzamos cada venta contra el maestro de inventario y encontramos que "
                 f"**{h['n_fantasma']:,} ventas ({h['pct_fantasma']:.1f}%)** corresponden a "
                 f"productos que no existen en el catálogo oficial. Esto representa "
-                f"**${h['ingreso_riesgo']:,.0f} USD** — el **{h['pct_ingreso_riesgo']:.1f}% del "
+                f"**{h['ingreso_riesgo']:,.0f} USD** — el **{h['pct_ingreso_riesgo']:.1f}% del "
                 "ingreso total** — sobre el cual la empresa no puede calcular costo ni margen "
                 "real con certeza. Es el hallazgo de mayor riesgo de control financiero de "
                 "todo el análisis."

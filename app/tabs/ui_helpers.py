@@ -1,31 +1,43 @@
-"""
-ui_helpers.py
--------------
-Componentes visuales compartidos entre las pestañas del dashboard, para no
-repetir el mismo CSS/lógica en cada archivo de app/tabs/.
-"""
-
+import os
 import textwrap
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
+# results/figuras/ vive 2 niveles arriba de este archivo (app/tabs/ -> raíz -> results/figuras)
+_RUTA_FIGURAS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "results", "figuras",
+)
+
+
+def _ruta_figura(nombre: str) -> str:
+    os.makedirs(_RUTA_FIGURAS, exist_ok=True)
+    return os.path.join(_RUTA_FIGURAS, f"{nombre}.png")
+
+
+def guardar_altair(chart: "alt.Chart", nombre: str):
+    """Exporta un gráfico de Altair a results/figuras/{nombre}.png (requiere vl-convert-python).
+    Si falla (ej. no está instalado el paquete), no rompe la app — solo avisa una vez."""
+    try:
+        chart.save(_ruta_figura(nombre), scale_factor=2)
+    except Exception as e:
+        st.caption(f"⚠️ No se pudo guardar la figura '{nombre}.png': {e}")
+
+
+def guardar_matplotlib(fig, nombre: str):
+    """Exporta una figura de Matplotlib/Seaborn a results/figuras/{nombre}.png."""
+    try:
+        fig.savefig(_ruta_figura(nombre), dpi=170, bbox_inches="tight")
+    except Exception as e:
+        st.caption(f"⚠️ No se pudo guardar la figura '{nombre}.png': {e}")
+
 
 def render_html_block(*partes: str):
-    """
-    Renderiza uno o más fragmentos HTML/CSS como un solo st.markdown().
-
-    Streamlit le aplica textwrap.dedent() a TODO el string final antes de
-    mandarlo al navegador, pero dedent solo puede quitar la indentación
-    mínima COMÚN a todas las líneas. Si se concatenan fragmentos con
-    distinta indentación de origen (ej. una constante CSS definida sin
-    indentar + un f-string escrito con 8 espacios dentro de una función),
-    el mínimo común baja a 0 y el fragmento indentado queda con espacios
-    de sobra -> Markdown lo interpreta como bloque de código.
-
-    Por eso cada parte se dedenta POR SEPARADO aquí, antes de unirlas.
-    """
+    """Renderiza fragmentos HTML/CSS en un solo st.markdown(), dedentando cada
+    parte por separado (si no, Streamlit puede interpretar el HTML indentado
+    como bloque de código)."""
     html = "\n".join(textwrap.dedent(p).strip("\n") for p in partes)
     st.markdown(html, unsafe_allow_html=True)
 
@@ -70,13 +82,8 @@ def badge_inline(texto: str) -> str:
 
 
 def metric_box(col, etiqueta: str, valor: str, delta: str = None, delta_es_bueno: bool = None):
-    """
-    Renderiza una métrica dentro de un cuadro amarillo claro y translúcido,
-    en vez del st.metric() nativo.
-
-    delta_es_bueno: True -> delta en verde, False -> delta en rojo,
-    None -> delta en gris neutro (informativo, sin implicar bien/mal).
-    """
+    """Métrica en cuadro amarillo translúcido (reemplaza st.metric()).
+    delta_es_bueno: True=verde, False=rojo, None=gris neutro."""
     delta_html = ""
     if delta is not None:
         if delta_es_bueno is True:
@@ -105,6 +112,8 @@ def metric_box(col, etiqueta: str, valor: str, delta: str = None, delta_es_bueno
             """,
             unsafe_allow_html=True,
         )
+
+
 def download_button_verde(label: str, data, file_name: str, mime: str, key: str):
     """Botón de descarga centrado, en verde claro translúcido, sin emoji."""
     st.markdown(
@@ -128,17 +137,12 @@ def download_button_verde(label: str, data, file_name: str, mime: str, key: str)
             label, data=data, file_name=file_name, mime=mime,
             width="stretch", key=key,
         )
-def bar_chart_fijo(serie: pd.Series, height: int = 350, color: str = "#60a5fa"):
-    """
-    Grafico de barras a partir de una Serie (index=categoría, values=número),
-    construido con Altair SIN .interactive() — queda completamente fijo,
-    sin zoom ni paneo con la rueda del mouse (a diferencia de st.bar_chart,
-    que trae esa interacción activada por defecto).
 
-    Respeta el orden en el que vengan las categorías en la Serie (si ya
-    viene ordenada con .sort_values(), el gráfico mantiene ese orden en
-    vez de reordenar alfabéticamente).
-    """
+
+def bar_chart_fijo(serie: pd.Series, height: int = 350, color: str = "#60a5fa", guardar: str = None):
+    """Barras con Altair sin .interactive() (no hace zoom/paneo con el mouse,
+    a diferencia de st.bar_chart). Respeta el orden de la Serie recibida.
+    Si se pasa `guardar`, también exporta a results/figuras/{guardar}.png."""
     df = serie.reset_index()
     df.columns = ["Categoria", "Valor"]
     grafico = (
@@ -152,3 +156,5 @@ def bar_chart_fijo(serie: pd.Series, height: int = 350, color: str = "#60a5fa"):
         .properties(height=height)
     )
     st.altair_chart(grafico, width="stretch")
+    if guardar:
+        guardar_altair(grafico, guardar)

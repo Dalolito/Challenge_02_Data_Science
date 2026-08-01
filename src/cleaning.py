@@ -1,9 +1,3 @@
-"""
-Limpieza y preprocesamiento de los 3 datasets. Cada cambio queda registrado
-en un reporte de trazabilidad con 3 campos: identificacion (qué se detectó),
-decision (qué técnica se aplicó) y justificacion (por qué esa técnica).
-"""
-
 import re
 import numpy as np
 import pandas as pd
@@ -113,12 +107,60 @@ def _impute_median_by_group(series, group_series):
     return result
 
 
+def _normalize_bodega_origen(serie: pd.Series):
+    """Unifica variantes de mayúscula/minúscula del mismo nombre de bodega
+    (ej. 'norte' y 'Norte' -> 'Norte'). No toca códigos con guion/número
+    (ej. 'BOD-EXT-99'), esos se dejan tal cual con su grafía más frecuente.
+    Devuelve (serie_normalizada, dict con solo los valores que cambiaron)."""
+    limpio = serie.astype(str).str.strip()
+    clave = limpio.str.lower()
+
+    canonicos = {}
+    for k in clave.unique():
+        variantes = limpio[clave == k]
+        primero = variantes.iloc[0]
+        if re.fullmatch(r"[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+", primero):
+            canonicos[k] = primero.title()
+        else:
+            canonicos[k] = variantes.value_counts().index[0]
+
+    resultado = clave.map(canonicos)
+    cambios = {
+        original: canonicos[k]
+        for original, k in zip(limpio, clave)
+        if original != canonicos[k]
+    }
+    return resultado, cambios
+
+
 # Limpieza de Inventario
 
 def clean_inventario(df: pd.DataFrame):
     report = {"dataset": "inventario", "cambios": [], "nulos_antes": {}, "nulos_despues": {}}
     df = df.copy()
     nulos_antes = df.isna().sum().to_dict()
+
+    # Bodega_Origen: unificar variantes de mayúscula/minúscula ANTES de
+    # cualquier groupby por bodega (Categoria y Costo_Envio dependen de esto)
+    if "Bodega_Origen" in df.columns:
+        col = "Bodega_Origen"
+        antes_unique = df[col].nunique()
+        df[col], cambios_bodega = _normalize_bodega_origen(df[col])
+        if cambios_bodega:
+            ejemplo = next(iter(cambios_bodega.items()))
+            _registrar_cambio(
+                report, col,
+                identificacion=f"Se encontraron {antes_unique} valores únicos de Bodega_Origen, "
+                                f"pero algunos eran la misma bodega escrita con distinta "
+                                f"mayúscula/minúscula (ej. '{ejemplo[0]}' y '{ejemplo[1]}'), "
+                                "que Python trata como grupos distintos al agrupar.",
+                decision="Se unificaron a un único valor canónico por bodega (Title Case para "
+                          "nombres simples; los códigos con guion/número como 'BOD-EXT-99' se "
+                          "dejaron intactos).",
+                justificacion="Sin unificar, cualquier análisis agrupado por bodega (ej. tasa "
+                               "de tickets de soporte) fragmenta artificialmente los datos de "
+                               "una misma bodega en dos filas, distorsionando el promedio real.",
+            )
 
     # Costo_Unitario_USD
     if "Costo_Unitario_USD" in df.columns:

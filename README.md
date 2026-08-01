@@ -58,12 +58,19 @@ el Documento de Hallazgos (PDF).
 .
 ├── README.md
 ├── requirements.txt
+├── .env.example               # plantilla sin usar (el proyecto usa secrets.toml, no .env)
+├── .gitignore
+├── .devcontainer/
+│   └── devcontainer.json
 ├── .streamlit/
 │   ├── config.toml           # tema visual de la app
 │   └── secrets.toml          # GROQ_API_KEY (NO se versiona, está en .gitignore)
 ├── data/
 │   ├── raw/                  # los 3 CSV originales (NO se versionan, ver .gitignore)
 │   └── processed/            # datasets ya limpios, exportados por el notebook
+│       ├── inventario_limpio.csv
+│       ├── transacciones_limpio.csv
+│       └── feedback_limpio.csv
 ├── notebooks/
 │   └── challenge02_exploracion.ipynb   # EDA, limpieza aplicada y decisiones de imputación
 ├── src/
@@ -71,21 +78,27 @@ el Documento de Hallazgos (PDF).
 │   ├── cleaning.py           # limpieza y curación (Fase 1), con reporte de trazabilidad
 │   ├── quality_metrics.py    # Health Score en 4 dimensiones (completitud/unicidad/validez/consistencia)
 │   ├── feature_engineering.py  # merge de los 3 datasets + variables derivadas (Fase 2)
-│   └── ai_insights.py        # integración con Groq / Llama-3 (Fase 3)
+│   └── ai_insights.py        # integración con Groq / Llama-3 (Fase 3) — la usa tab_ia_insights.py
 ├── app/
 │   ├── app.py                 # punto de entrada de Streamlit (orquestación, sin lógica de negocio)
 │   └── tabs/
+│       ├── ui_helpers.py            # componentes visuales compartidos entre pestañas (badges, gráficos fijos, botones)
 │       ├── tab_auditoria.py         # Módulo de Transparencia: 4 dimensiones, correcciones, registros marcados
 │       ├── tab_operaciones.py       # Preguntas 1, 2 y 3
 │       ├── tab_cliente.py           # Preguntas 4 y 5
 │       ├── tab_ia_insights.py       # botón de recomendación con Groq
-│       └── tab_resumen_ejecutivo.py # Análisis Final: contexto, qué se analizó, hallazgos por pregunta, plan de acción
+│       ├── tab_resumen_ejecutivo.py # Análisis Final: contexto, hallazgos por pregunta, plan de acción, descarga en PDF
+│       └── ai_insights.py           # ⚠️ borrador sin usar, no se importa desde ningún lado — pendiente de limpiar
 ├── results/
-│   ├── figuras/                     # gráficas exportadas en .png
+│   ├── figuras/                     # gráficas exportadas en .png (health score antes/después)
 │   └── tabla_diagnostico_gigo.csv   # nulidad, duplicados, outliers y acción tomada por dataset
+├── assets/
+│   └── screenshots/                 # (vacío por ahora)
+├── taller_practico/
+│   └── Challenge_02_Informe_Hallazgos.pdf   # ⚠️ vacío, sin usar — el PDF real está en docs/
 └── docs/
     ├── declaracion_uso_IA.md
-    └── Challenge_02_Informe_Hallazgos.pdf   # Documento de Hallazgos, dirigido a la junta directiva
+    └── Challenge_02_Informe_Hallazgos.pdf   # Documento de Hallazgos oficial, ver sección 5.1
 ```
 
 ## 4. Cómo reproducir el análisis
@@ -149,7 +162,25 @@ recalculan según los filtros aplicados.
 - **📋 Análisis Final** — Informe de consultoría completo: contexto del encargo, qué se
   analizó (incluida la matriz de correlación multivariable), un hallazgo por cada una de las 5
   preguntas estratégicas citadas textualmente, y el Plan de Acción priorizado por complejidad.
-  Es el equivalente en el dashboard al Documento de Hallazgos en PDF.
+  Incluye un botón para descargar una versión en PDF generada en tiempo real a partir de los
+  filtros actuales — ver sección 5.1 para la diferencia con el Documento de Hallazgos oficial.
+
+### 5.1 Sobre los dos documentos de hallazgos en PDF
+
+Este proyecto entrega **dos PDF distintos**, con propósitos distintos — no es una duplicación
+accidental:
+
+1. **`docs/Challenge_02_Informe_Hallazgos.pdf`** — el **Documento de Hallazgos oficial**,
+   redactado y diagramado por el equipo. Cita textualmente las 5 preguntas de la junta, incluye
+   una gráfica específica por cada hallazgo (no solo el heatmap general), y cierra con una
+   sección de Conclusión que valida y matiza la hipótesis inicial de invisibilidad operativa.
+   **Este es el entregable de referencia para la evaluación del reto.**
+
+2. **Botón "Descargar análisis completo (PDF)"**, al final de la pestaña **Análisis Final** del
+   dashboard — genera un PDF más simple **en tiempo real**, a partir de los datos que estén
+   filtrados en ese momento en el sidebar (por ejemplo, si se filtra solo una categoría o un
+   rango de fechas específico). Es una herramienta exploratoria del dashboard, útil para
+   compartir un corte puntual del análisis; no reemplaza al documento oficial.
 
 ## 6. Principales hallazgos
 
@@ -189,9 +220,10 @@ decisión y justificación de cada corrección está en la pestaña Auditoría d
   priorizar un cambio de operador logístico** sin antes investigar otras causas de insatisfacción
   (ver Pregunta 4).
 
-El detalle completo de las 5 recomendaciones (una por pregunta, con objetivo, responsable
-sugerido, plazo, impacto esperado y pasos concretos) está en la pestaña **Análisis Final** del
-dashboard y en la sección 4 del Documento de Hallazgos.
+El dashboard (pestaña **Análisis Final**) detalla las 5 recomendaciones completas — una por
+pregunta, con objetivo, responsable sugerido, plazo, impacto esperado y pasos concretos. El
+Documento de Hallazgos oficial prioriza y desarrolla en su sección 4 las 3 de menor complejidad
+de implementación, como plan de acción inmediato para la junta directiva.
 
 ## 9. Declaración de uso de Inteligencia Artificial
 

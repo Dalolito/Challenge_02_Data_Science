@@ -1,5 +1,3 @@
-"""Carga CSVs crudos desde data/raw/."""
-
 import os
 import pandas as pd
 

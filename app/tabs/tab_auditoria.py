@@ -1,11 +1,3 @@
-"""
-Pestaña "Auditoría" (módulo de transparencia): calidad en 4 dimensiones,
-errores detectados y corregidos, antes/después con filas reales, registros
-marcados (flags) y descarga del reporte de limpieza. Usa los reportes de
-src/cleaning.py — no recalcula nada. Se llama desde app.py como
-tab_auditoria.render(datasets_crudos, datasets_limpios, reportes).
-"""
-
 import io
 import os
 import sys
@@ -16,7 +8,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from quality_metrics import resumen_calidad_completo
-from .ui_helpers import titulo_seccion as _titulo_seccion, metric_box as _metric_box, download_button_verde
+from .ui_helpers import titulo_seccion as _titulo_seccion, metric_box as _metric_box, download_button_verde, guardar_altair
 
 
 # Utilidades internas
@@ -182,6 +174,7 @@ def render(datasets_crudos: dict, datasets_limpios: dict, reportes: list):
                     # ni paneo con la rueda del mouse.
                 )
                 st.altair_chart(grafico, width='stretch')
+                guardar_altair(grafico, f"auditoria_4dimensiones_{nombre_ds}")
 
             # --- Heatmap de validez por columna (antes vs después) ---
             validez_antes = antes_completo["validez_detalle"]
