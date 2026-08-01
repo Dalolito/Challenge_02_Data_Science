@@ -11,16 +11,11 @@ import streamlit as st
 
 from .ui_helpers import titulo_seccion, download_button_verde, guardar_matplotlib
 
-# Brecha_Entrega se excluye: es Tiempo_Entrega_Real menos una constante,
-# su correlación con ella siempre es 1.00 y no aporta información.
 VARS_CORRELACION = [
     "Margen_Utilidad", "Precio_Venta_Final", "Costo_Envio", "Tiempo_Entrega_Real",
     "Stock_Actual", "Costo_Unitario_USD", "Rating_Producto", "Rating_Logistica",
     "Satisfaccion_NPS", "Cantidad_Vendida", "Edad_Cliente",
 ]
-
-
-# Cálculo de hallazgos
 
 def _calcular_hallazgos(df: pd.DataFrame) -> dict:
     """Recalcula los números clave de las 5 preguntas del reto, en un solo dict."""
@@ -35,9 +30,16 @@ def _calcular_hallazgos(df: pd.DataFrame) -> dict:
         if not df_negativo.empty and "SKU_ID" in df.columns:
             h["peor_sku"] = df_negativo.groupby("SKU_ID")["Margen_Utilidad"].sum().idxmin()
         if not df_negativo.empty and "Canal_Venta" in df.columns:
-            por_canal = df_negativo.groupby("Canal_Venta")["Margen_Utilidad"].sum()
-            h["canal_peor_margen"] = por_canal.idxmin()
-            h["perdida_canal_peor"] = por_canal.min()
+            por_canal_perdida = df_negativo.groupby("Canal_Venta")["Margen_Utilidad"].sum()
+            h["canal_peor_margen"] = por_canal_perdida.idxmin()
+            h["perdida_canal_peor"] = por_canal_perdida.min()
+
+            pct_perdida_canal = 100 * por_canal_perdida.abs() / por_canal_perdida.abs().sum()
+            h["pct_perdida_canal_peor"] = pct_perdida_canal.loc[h["canal_peor_margen"]]
+            h["pct_perdida_canal_min"] = pct_perdida_canal.min()
+            h["pct_perdida_canal_max"] = pct_perdida_canal.max()
+            h["spread_perdida_canales"] = pct_perdida_canal.max() - pct_perdida_canal.min()
+            h["margen_negativo_balanceado"] = h["spread_perdida_canales"] <= 10
 
     if {"Ciudad_Destino", "Tiempo_Entrega_Real", "Satisfaccion_NPS"}.issubset(df.columns):
         df_val = df.dropna(subset=["Ciudad_Destino", "Tiempo_Entrega_Real", "Satisfaccion_NPS"])
@@ -240,12 +242,26 @@ def _render_hallazgos(h: dict):
                 f"**{abs(h['perdida_total']):,.0f} USD**."
             )
             if "canal_peor_margen" in h:
-                texto += (
-                    f" El canal **{h['canal_peor_margen']}** concentra la mayor parte de esa "
-                    f"pérdida ({abs(h['perdida_canal_peor']):,.0f} USD), lo que indica que "
-                    "no es un problema de volumen aislado en unos pocos productos, sino una "
-                    "**falla sistemática de precios en un canal específico**."
-                )
+                if h.get("margen_negativo_balanceado", False):
+                    texto += (
+                        f" La pérdida se distribuye de forma prácticamente pareja entre los "
+                        f"4 canales (entre {h['pct_perdida_canal_min']:.1f}% y "
+                        f"{h['pct_perdida_canal_max']:.1f}% del total cada uno) — el canal "
+                        f"**{h['canal_peor_margen']}** solo tiene {h['pct_perdida_canal_peor']:.1f}% "
+                        "de la pérdida, en línea con su participación en el volumen de ventas. "
+                        "Esto **descarta una falla de precios aislada en un canal específico**: "
+                        "es un **problema sistemático de pricing que afecta a todos los canales "
+                        "por igual**, no un canal concentrando la pérdida."
+                    )
+                else:
+                    texto += (
+                        f" El canal **{h['canal_peor_margen']}** concentra "
+                        f"{h['pct_perdida_canal_peor']:.1f}% de esa pérdida "
+                        f"({abs(h['perdida_canal_peor']):,.0f} USD), muy por encima de su "
+                        "participación en el volumen de ventas, lo que sí indica una "
+                        "**falla de precios específica de ese canal** (no un problema "
+                        "distribuido entre todos)."
+                    )
             st.markdown(texto)
         else:
             st.info("No hay datos suficientes en el filtro actual para responder esta pregunta.")
@@ -360,7 +376,12 @@ def _construir_recomendaciones(h: dict) -> list:
 
     # Recomendación — Pregunta 1 (márgenes)
     if h.get("n_margen_negativo", 0) > 0:
-        canal_txt = f", concentrada en el canal **{h['canal_peor_margen']}**" if "canal_peor_margen" in h else ""
+        if "canal_peor_margen" not in h:
+            canal_txt = ""
+        elif h.get("margen_negativo_balanceado", False):
+            canal_txt = " (distribuida de forma pareja entre los 4 canales, no aislada a uno)"
+        else:
+            canal_txt = f", concentrada desproporcionadamente en el canal **{h['canal_peor_margen']}**"
         recomendaciones.append({
             "pregunta": "Pregunta 1 — Rentabilidad",
             "titulo": "Corregir precios y descatalogar SKU con margen negativo estructural",
@@ -719,7 +740,12 @@ def _generar_pdf_informe(
          f"{h['n_margen_negativo']:,} transacciones ({h['pct_margen_negativo']:.1f}%) se "
          f"ejecutaron con margen negativo, acumulando una pérdida de "
          f"${abs(h['perdida_total']):,.0f} USD."
-         + (f" El canal {h['canal_peor_margen']} concentra la mayor parte de esa pérdida."
+         + ((f" La pérdida se distribuye de forma pareja entre los 4 canales "
+             f"({h['pct_perdida_canal_min']:.1f}%-{h['pct_perdida_canal_max']:.1f}% cada uno), "
+             "sin uno dominante: es un problema sistemático de pricing, no aislado a un canal."
+             if h.get("margen_negativo_balanceado", False) else
+             f" El canal {h['canal_peor_margen']} concentra {h['pct_perdida_canal_peor']:.1f}% "
+             "de esa pérdida, muy por encima de su participación en el volumen de ventas.")
             if "canal_peor_margen" in h else "")
          if "n_margen_negativo" in h else
          "No hay datos suficientes en el filtro actual para responder esta pregunta."),

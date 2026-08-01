@@ -25,7 +25,9 @@ lealtad de clientes, y sospechaba que la causa raíz era la invisibilidad operat
 sistemas (ERP de Inventarios, Logística y Feedback). Se construyó un Sistema de Soporte a la
 Decisión (DSS) en Streamlit a partir de 3 datasets crudos (17.000 registros en total) con fallas
 de calidad deliberadas. Se confirmó que el 41.2% de las ventas se hacen con margen negativo
-(pérdida acumulada de $1.73M USD, concentrada en el canal WhatsApp) y que el 17.5% del ingreso
+(pérdida acumulada de $1.73M USD, distribuida de forma prácticamente pareja entre los 4 canales
+de venta — entre 23.1% y 26.6% cada uno — lo que descarta una falla de precios aislada en un
+canal y apunta a un problema sistemático de pricing) y que el 17.5% del ingreso
 total ($1.74M USD) corresponde a ventas de productos sin registro en inventario. En cambio, no
 se encontró evidencia fuerte de que la logística sea el principal motor de la insatisfacción del
 cliente: la correlación entre tiempo de entrega y NPS resultó débil incluso en la ciudad más
@@ -186,7 +188,7 @@ accidental:
 
 | # | Hallazgo | Evidencia (tabla/figura) | Pregunta que responde |
 | --- | --- | --- | --- |
-| 1 | 3.400 ventas (41.2%) se hacen con margen negativo, acumulando una pérdida de $1.73M USD. El canal WhatsApp concentra la mayor parte de esa pérdida. | Top 15 SKU con peor margen, tab Operaciones | Pregunta 1 |
+| 1 | 3.400 ventas (41.2%) se hacen con margen negativo, acumulando una pérdida de $1.73M USD, distribuida de forma pareja entre los 4 canales (23.1%-26.6% cada uno) — es un problema sistemático de pricing, no aislado a un canal. | Top 15 SKU con peor margen, tab Operaciones | Pregunta 1 |
 | 2 | La correlación entre tiempo de entrega y NPS es débil en todas las ciudades (máximo -0.02 en Bucaramanga) — la logística no aparece como el principal motor de insatisfacción del cliente en este dataset. | Tabla de correlación por ciudad, tab Operaciones | Pregunta 2 |
 | 3 | 1.751 ventas (17.5%) corresponden a SKU sin registro en inventario, representando $1.74M USD (17.5% del ingreso total) sin trazabilidad de costo ni margen. | Gráfica de ventas fantasma por canal, tab Operaciones | Pregunta 3 |
 | 4 | Smartphones combina alto stock disponible con el NPS más bajo entre categorías — paradoja stock/sentimiento, con rating de producto también bajo (apunta a calidad, no solo precio). | Cruce Stock/NPS/Rating por categoría, tab Cliente | Pregunta 4 |
@@ -211,7 +213,9 @@ decisión y justificación de cada corrección está en la pestaña Auditoría d
 ## 8. Decisión recomendada
 
 - **Corregir precios y descatalogar los SKU con margen negativo estructural** (complejidad baja,
-  1-2 semanas) — puede recuperar hasta $1.73M USD/periodo, concentrado en el canal WhatsApp.
+  1-2 semanas) — puede recuperar hasta $1.73M USD/periodo; el problema afecta a los 4 canales de
+  venta casi por igual, por lo que la corrección debe aplicarse a nivel de política de precios,
+  no a un canal específico.
 - **Auditar y sincronizar el catálogo de inventario** (complejidad media, 3-6 semanas) — para
   recuperar visibilidad sobre el 17.5% del ingreso total actualmente sin trazabilidad de costo.
 - **Implementar auditorías periódicas de stock en la bodega Occidente** (complejidad alta,
